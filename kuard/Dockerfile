@@ -23,7 +23,5 @@ COPY --from=build --chown=nobody:nobody /go/bin/kuard /kuard
 
 USER nobody:nobody
 EXPOSE 8080
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD ["/kuard", "-v"] || exit 1
 
 ENTRYPOINT ["/kuard"]
