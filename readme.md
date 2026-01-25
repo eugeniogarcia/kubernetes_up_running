@@ -312,6 +312,12 @@ podemos ver información de detalle
 kubectl describe pods kuard
 ```
 
+podemos hacer port forwarding al contenedor:
+
+```ps
+kubectl port-forward kuard 8080:8080
+```
+
 ```yaml
 apiVersion: v1
 kind: Pod
