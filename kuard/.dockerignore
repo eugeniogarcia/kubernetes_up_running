@@ -1,0 +1,42 @@
+# Build artifacts and caches
+client/node_modules
+.go
+node_modules
+
+# Version control
+.git
+.gitignore
+.github
+
+# IDE and editor files
+.vscode
+.idea
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Testing and coverage
+coverage
+.nyc_output
+*.test.js
+
+# Build outputs (not needed in image) - but KEEP build/build.sh
+dist/
+out/
+
+# Documentation
+docs/
+*.md
+
+# Dependencies (keep go.sum for Go builds, remove npm locks)
+package-lock.json
+yarn.lock
+
+# Environment and config
+.env
+.env.local
+*.local
+
+# OS files
+Thumbs.db

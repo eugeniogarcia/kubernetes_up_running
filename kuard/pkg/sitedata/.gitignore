@@ -1,0 +1,2 @@
+# Legacy bindata file - no longer used with Go 1.16+ //go:embed
+bindata.go
