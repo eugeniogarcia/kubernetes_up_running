@@ -85,7 +85,7 @@ export default class Probe extends React.Component {
 
     return (
       <div>
-        <p>Probe is being served on <a href={this.props.serverPath}>{this.props.serverPath}</a></p>
+        <p>Probe is being served on <a href={this.props.serverPath} target="_blank" rel="noopener noreferrer">{this.props.serverPath}</a></p>
         <p>{probeDesc}<br/>
            <span className="small">
              <a className="failn" onClick={e => this.configure(e, 0)} href="#">Succeed</a> | { " " }

@@ -65,7 +65,7 @@ export default class App extends React.Component {
               <HighlightLink href={base+"/-/dns"} className="nav-item">DNS Query</HighlightLink>
               <HighlightLink href={base+"/-/keygen"} className="nav-item">KeyGen Workload</HighlightLink>
               <HighlightLink href={base+"/-/memq"} className="nav-item">MemQ Server</HighlightLink>
-              <a className="nav-item" href={base+"/fs/"}>File system browser</a>
+              <a className="nav-item" href={base+"/fs/"} target="_blank" rel="noopener noreferrer">File system browser</a>
             </div>
             <div className="content">
               <Locations onNavigation={this.handleNavigation.bind(this)}>
