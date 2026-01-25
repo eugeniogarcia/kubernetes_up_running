@@ -152,6 +152,8 @@ podemos ver los siguientes elementos:
 kubectl exec -n kube-system etcd-desktop-control-plane -- etcdctl endpoint health
 ```
 
+Muchos de estos comandos admiten el flag `--watch` para monitorizar de forma continua cambios de valor/estado.
+
 ### Namespaces
 
 Con kubectl hacemos referencia a un namespace con el tag `--namespace` o el abreviado `-n`.
@@ -362,3 +364,63 @@ spec:
         periodSeconds: 10
         failureThreshold: 3
 ```
+
+## Etiquetas
+
+Las etiquetas son una forma de metadata que puede asociarse a diferentes objetos y que puede utilizarse para seleccionar objetos. Las etiquetas son un par key valor. La key debe ser un valor _valido DNS_. Podemos ver varios ejemplos de etiquetas:
+
+|Key|Value|
+|-----|-----|
+|acme.com/app-version|1.0.0|
+|appVersion|1.0.0|
+|app.version|1.0.0|
+|kubernetes.io/cluster-service|true|
+
+Al recuperar los objetos podemos incluir etiquetas en la salida (`-L` es un shortcut de `--show-labels`):
+
+```ps
+kubectl get deployments -L canary
+```
+
+para actualizar el valor de una etiqueta usamos el comando `label`:
+
+```ps
+kubectl label deployments alpaca-test "canary=true"
+```
+
+para eliminar una etiqueta ponemos el sufijo `-` en el nombre de la etiqueta:
+
+```ps
+kubectl label deployments alpaca-test canary-
+```
+
+Podemos usar las etiquetas para _interrogar_ a Kubernetes a la hora de recuperar objetos. Por ejemplo aquí vamos a obtener deployments con la etiqueta _canary_
+
+```ps
+kubectl get pods --selector="ver=2"
+```
+
+si indicamos dos selectores separados por una coma se interpreta como un AND:
+
+```ps
+kubectl get pods --selector="ver=2,app=bandicoot"
+```
+
+podemos usar varios operadores:
+
+|Operator|Description|
+|--------|--------|
+|key=value|key is set to value|
+|key!=value|key is not set to value|
+|key in (value1, value2)|key is one of value1 or value2|
+|key notin (value1, value2)|key is not one of value1 or value2|
+|key|key is set|
+|!key|key is not set|
+
+## Anotaciones
+
+Son tambien metadata pero una metadata que no se utiliza para clasificar sino para registrar información con el contenedor que no tiene cabida en la api estandar de Kubernetes.
+
+## Service Discovery
+
+
