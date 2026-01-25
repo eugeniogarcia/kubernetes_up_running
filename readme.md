@@ -74,6 +74,27 @@ docker tag kuard:latest egsmartin/kuarg:latest
 docker push egsmartin/kuarg:latest
 ```
 
+podemos ejecutar en docker:
+
+```ps
+docker run --rm -p 8080:8080 egsmartin/kuard:latest
+```
+
+```ps
+docker run -d --name kuard \
+  --publish 8080:8080 \
+  --memory 200m \
+  --memory-swap 1G \
+  --cpu-shares 1024 \
+  egsmartin/kuard:latest
+```
+
+finalmente liberamos recursos que ya no necesitamos:
+
+```ps
+docker system prune
+```
+
 ## kubectl
 
 ```ps
@@ -147,48 +168,179 @@ y lo usamos:
 kubectl config use-context my-context
 ```
 
-kubectl get pods my-pod -o jsonpath --template={.status.podIP}
+### Gestion de recursos
 
+Podemos obtner información de los recursos creados. Por ejemplo para recuperar los pods y servicios:
+
+```ps
 kubectl get pods,services
+```
 
+podemos ver que opciones nos da la api de kubernetes con cada recurso. Por ejemplo, los atributos disponibles en los pods:
+
+```ps
 kubectl explain pods
+```
 
-kubectl apply -f obj.yaml
+por defecto se muestra el primer nivel de propiedades. Si queremos recuperar todas las propiedades:
 
-kubectl delete -f obj.yaml
+```ps
+kubectl explain pod --recursive=true
+```
 
+creamos y borramos recursos:
+
+```ps
+kubectl apply -f kuard-pod-full.yaml
+
+kubectl delete -f kuard-pod-full.yaml
+```
+
+podemos también referirnos a los objetos por su nombre:
+
+```ps
 kubectl delete <resource-name> <obj-name>
+```
 
-### Operar con Pods
+podemos etiquetar los objetos:
 
+```ps
 kubectl label pods bar color=red
+```
 
+si queremos quitar la etiqueta usamos el `-`. Por ejemplo para eliminar la etiqueta `color` del pod `bar` haríamos:
+
+```ps
 kubectl label pods bar color-
+```
 
-kubectl logs <pod-name>
+### Depurar contenedores
 
-kubectl exec -it <pod-name> -- bash
+Para ver los logs de un pod, por ejemplo del pod `kuard`:
 
-kubectl attach -it <pod-name>
+```ps
+kubectl logs kuard
+```
 
+podemos ver todos los eventos con:
+
+```ps
+kubectl describe pod kuard
+``` 
+
+nos podemos conectar en el contenedor ejecutando bash (siempre y cuando este presente en la imagen, que NO es el caso de _alpine_):
+
+```ps
+kubectl exec -it kuard -- bash
+```
+
+si no tenemos bash disponible en la imagen nos podemos _enganchar_ a ella, y veremos la salida por consola - que veríamos si estuvieramos corriendo el programa en forma local:
+
+```ps
+kubectl attach -it kuard
+```
+
+podemos copiar archivos - subirlos - a un pod:
+
+```ps
 kubectl cp <pod-name>:</path/to/remote/file> </path/to/local/file>
+```
 
-kubectl port-forward <pod-name> 8080:80
+Otra opción __muy interesante es el port forwarding__. Por ejemplo para que nuestro _localhost:9000_ se mapee con el puerto 8080 del pod:
 
+```ps
+kubectl port-forward kuard 9000:8080
+```
+
+podemos ver los eventos del cluster:
+
+```ps
 kubectl get events
+```
 
-uso de recursos
+si queremos ver que recursos consumen más recursos (siempre y cuando el cluster tenga habilitadas las métricas):
 
+```ps
 kubectl top nodes
 
 kubectl top pods
+```
 
 ### Gestión del Cluster
 
-kubectl cordon
+Si queremos que el scheduler deje de programar recursos en un determinado nodo:
 
-kubectl drain
+```ps
+kubectl cordon desktop-worker
+```
 
-kubectl uncordon
+Para extraer los recursos que ya están corriendo en un nodo:
 
+```ps
+kubectl drain desktop-worker
+```
 
+para volver a permitir que un nodo que fue acordonado vuelva a recibir encargos por parte del scheduler:
+
+```ps
+kubectl uncordon desktop-worker
+```
+
+## Pods
+
+Vamos a describir las características principales de un Pod. Vamos a tratar el pod kuard. Lo creamos:
+
+```ps
+kubectl apply -f .\kuard-pod-full.yaml
+```
+
+podemos ver información de detalle
+
+```ps
+kubectl describe pods kuard
+```
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: kuard
+spec:
+  volumes: # podemos definir volumenes que estarán disponibles para todos los contenedores del pod
+    - name: "kuard-data" # nombre del volumen
+      emptyDir: {} # en este caso vamos  crear un volumen temporal en memoria. Podriamos haber creato un ntfs, hostPath, persistentVolumeClaim, etc.
+  containers:
+    - image: docker.io/egsmartin/kuard:latest # tomamos una imagen en este caso de docker hub
+      imagePullPolicy: IfNotPresent # política de pull de la imagen
+      name: kuard
+      ports:
+        - containerPort: 8080 # puerto que expone el contenedor. Lo llamamos http
+          name: http
+          protocol: TCP
+      resources:
+        requests: # recursos que solicita el contenedor. El scheduler usará esta información para asignar el pod a un nodo que tenga estos recursos disponibles. El pod podria usar más cantidad de recursos si estuvieran disponibles en el nodo, pero nunca menos de lo solicitado, ni más de lo permitido por los límites
+          cpu: "500m" # 0.5 cores
+          memory: "128Mi" # 128 megabytes (las i significa que utilizamos potencias de 2, es decir 1Mi = 1024 * 1024 bytes)
+        limits: # recursos máximos que puede usar el contenedor. Si llegara a superar este límite, el contenedor sería terminado
+          cpu: "1000m"
+          memory: "256Mi"
+      volumeMounts: # vamos a montar en esta imagen uno de los volumnes que hemos definido en el pod, el que tiene nombre kuard-data. Lo montamos en la ruta /data del contenedor
+        - mountPath: "/data"
+          name: "kuard-data"
+      livenessProbe: # esta probe se usa para comprobar si el contenedor está vivo. Si falla, el contenedor se reiniciará. Se hace una llamada a la ruta /healthy del contenedor en el puerto 8080, cada 10 segundos, con un timeout de 1 segundo. Si falla 3 veces consecutivas, se considera que el contenedor no está vivo y se reinicia. La primera comprobación se hace 5 segundos después de iniciar el contenedor
+        httpGet:
+          path: /healthy
+          port: 8080
+        initialDelaySeconds: 5
+        timeoutSeconds: 1
+        periodSeconds: 10
+        failureThreshold: 3
+      readinessProbe: # esta probe se usa para comprobar si el contenedor está listo para recibir tráfico. Si falla, el contenedor no recibirá tráfico (pero no se reinicia). Se hace una llamada a la ruta /ready del contenedor en el puerto 8080, cada 10 segundos, con un timeout de 1 segundo. Si falla 3 veces consecutivas, se considera que el contenedor no está listo y no recibirá tráfico. La primera comprobación se hace 30 segundos después de iniciar el contenedor
+        httpGet:
+          path: /ready
+          port: 8080
+        initialDelaySeconds: 30
+        timeoutSeconds: 1
+        periodSeconds: 10
+        failureThreshold: 3
+```
