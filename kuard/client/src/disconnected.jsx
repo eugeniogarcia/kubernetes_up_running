@@ -28,11 +28,17 @@ export default class Disconnected extends React.Component {
 
   render () {
     let style = {
-      visibility: this.state.isDisconnected ? "visible" : "hidden"
+      visibility: this.state.isDisconnected ? "visible" : "hidden",
+      display: this.state.isDisconnected ? "block" : "none",
+      marginBottom: "8px"
     }
     return (
       <div id="disconnected" style={style}>
-        <svg className="icon icon-power"><use xlinkHref="#icon-power"></use></svg>
+        <div className="alert alert-warning" role="alert" style={{marginBottom: 0}}>
+          <span className="glyphicon glyphicon-disconnect"></span>
+          {" "}
+          Connection lost to server
+        </div>
       </div>
     )
   }

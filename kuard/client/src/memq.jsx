@@ -1,4 +1,6 @@
 import React from 'react';
+import PropTypes from 'prop-types';
+import AppContext from './AppContext';
 import fetchError from './fetcherror';
 import Markdown from './markdown'
 
@@ -100,9 +102,7 @@ export default class MemQ extends React.Component {
 }
 
 MemQ.propTypes =  {
-  serverPath: React.PropTypes.string.isRequired
+  serverPath: PropTypes.string.isRequired
 }
 
-MemQ.contextTypes = {
-  reportConnError: React.PropTypes.func
-};
+MemQ.contextType = AppContext;

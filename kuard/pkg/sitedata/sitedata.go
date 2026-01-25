@@ -12,7 +12,7 @@ import (
 	"github.com/pkg/errors"
 )
 
-//go:embed templates/*
+//go:embed templates/* built/* static/*
 var Assets embed.FS
 
 var debug bool
@@ -32,8 +32,8 @@ func GetStaticHandler(prefix string) httprouter.Handle {
 			handler := http.StripPrefix("/"+prefix+"/", http.FileServer(fs))
 			handler.ServeHTTP(w, r)
 		} else {
-			// Serve embedded files
-			subFS, err := fs.Sub(Assets, "templates")
+			// Serve embedded files from the requested prefix
+			subFS, err := fs.Sub(Assets, prefix)
 			if err != nil {
 				http.Error(w, "Failed to load embedded files", http.StatusInternalServerError)
 				return

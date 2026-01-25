@@ -1,8 +1,8 @@
-var webpack = require('webpack');
-var path = require('path');
+const webpack = require('webpack');
+const path = require('path');
 
-var BUILD_DIR = path.resolve(__dirname, '../sitedata/built');
-var APP_DIR = path.resolve(__dirname, 'src');
+const BUILD_DIR = path.resolve(__dirname, '../pkg/sitedata/built');
+const APP_DIR = path.resolve(__dirname, 'src');
 
 module.exports = {
   entry: './src/index.jsx',
@@ -11,30 +11,54 @@ module.exports = {
       {
         test: /\.(js|jsx)$/,
         exclude: /node_modules/,
-        use: ['babel-loader']
+        use: {
+          loader: 'babel-loader',
+          options: {
+            presets: [
+              ['@babel/preset-env', { targets: { browsers: ['last 2 versions'] } }],
+              '@babel/preset-react'
+            ]
+          }
+        }
       }
     ]
   },
   resolve: {
-    extensions: ['*', '.js', '.jsx']
+    extensions: ['.js', '.jsx']
   },
   output: {
     path: BUILD_DIR,
     publicPath: '/built/',
-    filename: 'bundle.js'
+    filename: 'bundle.js',
+    clean: true
   },
-  plugins: [
-    new webpack.HotModuleReplacementPlugin()
-  ],
+  cache: {
+    type: 'filesystem'
+  },
   performance: { hints: false },
   devServer: {
-    port: 8081,
+    static: [
+      {
+        directory: BUILD_DIR,
+        publicPath: '/built/'
+      }
+    ],
+    port: 8083,
     hot: true,
-    proxy: [{
-      context: ['**'],
-      target: 'http://localhost:8080',
-      changeOrigin: true
-    }]
+    compress: true,
+    proxy: [
+      {
+        context: ['**'],
+        target: 'http://localhost:8084',
+        changeOrigin: true,
+        bypass: function(req, res, proxyOptions) {
+          // Don't proxy /built requests - serve from webpack
+          if (req.path.startsWith('/built/')) {
+            return false; // let webpack serve it
+          }
+        }
+      }
+    ]
   }
 };
 

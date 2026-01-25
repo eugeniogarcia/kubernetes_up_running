@@ -30,7 +30,7 @@ func (k *App) BindConfig(v *viper.Viper, fs *pflag.FlagSet) {
 
 	fs.Bool("debug", false, "Debug/devel mode")
 	v.BindPFlag("debug", fs.Lookup("debug"))
-	fs.String("debug-sitedata-dir", "./sitedata", "When in debug/dev mode, directory to find the static assets.")
+	fs.String("debug-sitedata-dir", "./pkg/sitedata", "When in debug/dev mode, directory to find the static assets.")
 	v.BindPFlag("debug-sitedata-dir", fs.Lookup("debug-sitedata-dir"))
 	fs.String("address", ":8080", "The address to serve on")
 	v.BindPFlag("address", fs.Lookup("address"))

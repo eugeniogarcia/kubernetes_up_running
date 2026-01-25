@@ -1,11 +1,12 @@
 import React from 'react';
-import marked from 'marked';
+import PropTypes from 'prop-types';
+import { marked } from 'marked';
 
 export default class MarkdownElement extends React.Component {
   constructor(props) {
     super(props);
 
-    let renderer = new marked.Renderer()
+    const renderer = new marked.Renderer()
     renderer.table = function(header, body) {
       return '<table class="table table-condensed table-bordered">\n'
         + '<thead>\n'
@@ -41,7 +42,7 @@ export default class MarkdownElement extends React.Component {
 }
 
 MarkdownElement.propTypes = {
-  text: React.PropTypes.string.isRequired
+  text: PropTypes.string.isRequired
 };
 
 MarkdownElement.defaultProps = {

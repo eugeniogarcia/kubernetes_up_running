@@ -1,5 +1,8 @@
 import React from 'react';
+import PropTypes from 'prop-types';
+import AppContext from './AppContext';
 import Form from "@rjsf/core";
+import validator from "@rjsf/validator-ajv8";
 import fetchError from './fetcherror';
 
 const schema = {
@@ -133,6 +136,7 @@ export default class KeyGen extends React.Component {
             <Form
               schema={schema}
               uiSchema={uiSchema}
+              validator={validator}
               className="form"
               formData={this.state.config}
               onChange={this.handleChange}
@@ -140,6 +144,7 @@ export default class KeyGen extends React.Component {
               <input
                 className="btn btn-default"
                 type="submit"
+                value="Submit" />
                 value="Submit" />
             </Form>
           </div>
@@ -151,9 +156,7 @@ export default class KeyGen extends React.Component {
 }
 
 KeyGen.propTypes =  {
-  serverPath: React.PropTypes.string.isRequired,
+  serverPath: PropTypes.string.isRequired,
 }
 
-KeyGen.contextTypes = {
-  reportConnError: React.PropTypes.func
-};
+KeyGen.contextType = AppContext;

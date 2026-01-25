@@ -1,4 +1,5 @@
 import React from 'react';
+import PropTypes from 'prop-types';
 
 export default class Dns extends React.Component {
   constructor(props) {
@@ -88,5 +89,5 @@ export default class Dns extends React.Component {
 }
 
 Dns.propTypes =  {
-  serverPath: React.PropTypes.string.isRequired,
+  serverPath: PropTypes.string.isRequired,
 }

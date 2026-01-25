@@ -234,7 +234,19 @@ nos podemos conectar en el contenedor ejecutando bash (siempre y cuando este pre
 kubectl exec -it kuard -- bash
 ```
 
-si no tenemos bash disponible en la imagen nos podemos _enganchar_ a ella, y veremos la salida por consola - que veríamos si estuvieramos corriendo el programa en forma local:
+en el caso de _alpine_ tenemos el shell `ash`:
+
+```ps
+kubectl exec -it kuard -- ash
+```
+
+podemos ejecutar cualquier comando, no solo el shell:
+
+```ps
+kubectl exec -it kuard -- date
+```
+
+Si no tenemos bash disponible en la imagen nos podemos _enganchar_ a ella, y veremos la salida por consola - que veríamos si estuvieramos corriendo el programa en forma local:
 
 ```ps
 kubectl attach -it kuard

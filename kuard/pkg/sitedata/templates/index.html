@@ -1,9 +1,46 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Kuard</title>
+    <base href="{{.URLBase}}/">
+    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css">
+    <style>
+        body { margin: 0; padding: 0; }
+        .kuard-header {
+            background-color: #d9534f;
+            color: white;
+            padding: 15px 20px;
+            font-size: 24px;
+            font-weight: bold;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .top { padding: 12px 16px; }
+        .title { margin-bottom: 8px; }
+        .title .alert {
+            display: inline-block;
+            margin: 0 0 4px 0;
+            padding: 4px 8px;
+            font-size: 13px;
+            line-height: 1.3;
+        }
+        .title .hostname { margin: 0; font-size: 16px; line-height: 1.15; }
+        .title .host-meta { margin: 0 0 2px 0; font-size: 12px; color: #555; }
+        .nav-container { display: flex; }
+        .nav { min-width: 200px; margin-right: 20px; }
+        .nav-item { display: block; padding: 5px 10px; margin-bottom: 5px; text-decoration: none; color: #337ab7; }
+        .nav-item:hover { background-color: #f5f5f5; text-decoration: none; }
+        .nav-item.active { background-color: #337ab7; color: white; }
+        .content { flex: 1; }
+    </style>
 </head>
 <body>
-    <h1>Herramienta para <i>jugar</i> con Kubernetes</h1>
+    <div id="root"></div>
+    <script>
+        // Inject server context for the React client
+        var pageContext = {{ jsonstring . }};
+    </script>
+    <script src="{{.URLBase}}/built/bundle.js"></script>
 </body>
 </html>

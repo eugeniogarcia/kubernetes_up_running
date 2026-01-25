@@ -1,23 +1,18 @@
 import React from 'react';
-import Router from 'react-router-component';
+import { Link } from './router';
 import cx from 'classnames';
 
-class HighlightLink extends React.Component {
-    static contextType = Router.NavigatableMixin;
+export default class HighlightLink extends React.Component {
+  isActive() {
+    // Compare current pathname with href
+    return window.location.pathname === this.props.href;
+  }
 
-    isActive() {
-        // getPath() returns the path of the active Location in the current router.
-        return this.getPath && this.getPath() === this.props.href
-    }
+  render() {
+    const { activeClassName = 'active', className, ...props } = this.props;
+    const finalClassName = cx(className, { [activeClassName]: this.isActive() });
 
-    render() {
-        const { activeClassName = 'active', className } = this.props;
-        const finalClassName = cx(className, { [activeClassName]: this.isActive() });
-
-        return (
-            <Router.Link {...this.props} className={finalClassName} />
-        );
-    }
+    return <Link {...props} className={finalClassName} />;
+  }
 }
 
-export default HighlightLink;

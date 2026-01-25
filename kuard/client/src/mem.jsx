@@ -1,4 +1,6 @@
 import React from 'react';
+import PropTypes from 'prop-types';
+import AppContext from './AppContext';
 import numeral from 'numeral';
 import fetchError from './fetcherror';
 
@@ -94,9 +96,7 @@ export default class Mem extends React.Component {
 }
 
 Mem.propTypes =  {
-  apiPath: React.PropTypes.string.isRequired,
+  apiPath: PropTypes.string.isRequired,
 }
 
-Mem.contextTypes = {
-  reportConnError: React.PropTypes.func
-};
+Mem.contextType = AppContext;

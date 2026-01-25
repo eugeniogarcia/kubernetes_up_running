@@ -1,5 +1,5 @@
 import React from 'react';
-import PropTypes from 'prop-types';
+import AppContext from './AppContext';
 import Env from './env';
 import Mem from './mem';
 import Probe from './probe';
@@ -9,7 +9,7 @@ import Request from './request';
 import HighlightLink from './highlightlink'
 import Disconnected from './disconnected'
 import MemQ from './memq'
-import { Location, Locations } from 'react-router-component';
+import { Location, Locations } from './router';
 
 function createElement(Component, props) {
   console.log(props)
@@ -17,14 +17,9 @@ function createElement(Component, props) {
 }
 
 export default class App extends React.Component {
-  getChildContext() {
-    return {
-      reportConnError: () => {
-        if (this.disconnected) {
-          this.disconnected.reportConnError()
-        }
-      }
-    }
+  constructor(props) {
+    super(props);
+    this.disconnected = React.createRef();
   }
 
   handleNavigation() {
@@ -32,8 +27,8 @@ export default class App extends React.Component {
   }
 
   reportConnError() {
-      this.disconnected.
-      this.timer = setInterval(this.loadState.bind(this), 1000);
+    this.disconnected.current.reportConnError();
+    this.timer = setInterval(this.loadState.bind(this), 1000);
   }
 
   render () {
@@ -45,49 +40,49 @@ export default class App extends React.Component {
     let base = this.props.page.urlBase;
 
     return (
-      <div className="top">
-        <div className="title">
-          <div className="alert alert-danger" role="alert">
-            <svg className="icon icon-notification"><use xlinkHref="#icon-notification"></use></svg> { " " }
-            <b>WARNING:</b> This server may expose sensitive and secret information. Be careful.
+      <AppContext.Provider value={{ reportConnError: this.reportConnError.bind(this) }}>
+        <div className="kuard-header">KUARD</div>
+        <div className="top">
+          <div className="title">
+            <div className="alert alert-danger" role="alert">
+              <span className="glyphicon glyphicon-warning-sign"></span>
+              {" "}
+              <b>WARNING:</b> This server may expose sensitive and secret information. Be careful.
+            </div>
+            <Disconnected ref={this.disconnected}/>
+            <h3 className="hostname"><samp>{this.props.page.hostname}</samp></h3>
+            <div className="host-meta">Demo application version <i>{this.props.page.version}</i></div>
+            <div className="host-meta">Serving on {addrs}</div>
           </div>
-          <Disconnected ref={el => this.disconnected = el}/>
-          <h2><samp>{this.props.page.hostname}</samp></h2>
-          <div>Demo application version <i>{this.props.page.version}</i></div>
-          <div>Serving on {addrs}</div>
-        </div>
 
-        <div className="nav-container">
-          <div className="nav">
-            <HighlightLink href={base+"/"} className="nav-item">Request Details</HighlightLink>
-            <HighlightLink href={base+"/-/env"} className="nav-item">Server Env</HighlightLink>
-            <HighlightLink href={base+"/-/mem"} className="nav-item">Memory</HighlightLink>
-            <HighlightLink href={base+"/-/liveness"} className="nav-item">Liveness Probe</HighlightLink>
-            <HighlightLink href={base+"/-/readiness"} className="nav-item">Readiness Probe</HighlightLink>
-            <HighlightLink href={base+"/-/dns"} className="nav-item">DNS Query</HighlightLink>
-            <HighlightLink href={base+"/-/keygen"} className="nav-item">KeyGen Workload</HighlightLink>
-            <HighlightLink href={base+"/-/memq"} className="nav-item">MemQ Server</HighlightLink>
-            <a className="nav-item" href={base+"/fs/"}>File system browser</a>
-          </div>
-          <div className="content">
-            <Locations onNavigation={this.handleNavigation.bind(this)}>
-              <Location path={base+"/"} handler={Request} page={this.props.page}/>
-              <Location path={base+"/-/env"} apiPath={base+"/env/api"} handler={Env}/>
-              <Location path={base+"/-/mem"} apiPath={base+"/mem/api"} handler={Mem}/>
-              <Location path={base+"/-/liveness"} serverPath={base+"/healthy"} handler={Probe}/>
-              <Location path={base+"/-/readiness"} serverPath={base+"/ready"} handler={Probe}/>
-              <Location path={base+"/-/dns"} serverPath={base+"/dns"} handler={Dns}/>
-              <Location path={base+"/-/keygen"} serverPath={base+"/keygen"} handler={KeyGen}/>
-              <Location path={base+"/-/memq"} serverPath={base+"/memq"} handler={MemQ}/>
-            </Locations>
+          <div className="nav-container">
+            <div className="nav">
+              <HighlightLink href={base+"/"} className="nav-item">Request Details</HighlightLink>
+              <HighlightLink href={base+"/-/env"} className="nav-item">Server Env</HighlightLink>
+              <HighlightLink href={base+"/-/mem"} className="nav-item">Memory</HighlightLink>
+              <HighlightLink href={base+"/-/liveness"} className="nav-item">Liveness Probe</HighlightLink>
+              <HighlightLink href={base+"/-/readiness"} className="nav-item">Readiness Probe</HighlightLink>
+              <HighlightLink href={base+"/-/dns"} className="nav-item">DNS Query</HighlightLink>
+              <HighlightLink href={base+"/-/keygen"} className="nav-item">KeyGen Workload</HighlightLink>
+              <HighlightLink href={base+"/-/memq"} className="nav-item">MemQ Server</HighlightLink>
+              <a className="nav-item" href={base+"/fs/"}>File system browser</a>
+            </div>
+            <div className="content">
+              <Locations onNavigation={this.handleNavigation.bind(this)}>
+                <Location path={base+"/"} handler={Request} page={this.props.page}/>
+                <Location path={base+"/-/env"} apiPath={base+"/env/api"} handler={Env}/>
+                <Location path={base+"/-/mem"} apiPath={base+"/mem/api"} handler={Mem}/>
+                <Location path={base+"/-/liveness"} serverPath={base+"/healthy"} handler={Probe}/>
+                <Location path={base+"/-/readiness"} serverPath={base+"/ready"} handler={Probe}/>
+                <Location path={base+"/-/dns"} serverPath={base+"/dns"} handler={Dns}/>
+                <Location path={base+"/-/keygen"} serverPath={base+"/keygen"} handler={KeyGen}/>
+                <Location path={base+"/-/memq"} serverPath={base+"/memq"} handler={MemQ}/>
+              </Locations>
+            </div>
           </div>
         </div>
-      </div>
+      </AppContext.Provider>
     )
   }
-}
-
-App.childContextTypes = {
-  reportConnError: PropTypes.func
 }
 

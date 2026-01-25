@@ -1,4 +1,6 @@
 import React from 'react';
+import PropTypes from 'prop-types';
+import AppContext from './AppContext';
 import fetchError from './fetcherror';
 
 export default class Probe extends React.Component {
@@ -103,10 +105,8 @@ export default class Probe extends React.Component {
 }
 
 Probe.propTypes =  {
-  serverPath: React.PropTypes.string.isRequired
+  serverPath: PropTypes.string.isRequired
 }
 
-Probe.contextTypes = {
-  reportConnError: React.PropTypes.func
-};
+Probe.contextType = AppContext;
 

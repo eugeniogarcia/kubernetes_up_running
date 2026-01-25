@@ -29,12 +29,21 @@ export CGO_ENABLED=0
 export GOARCH="${ARCH}"
 export GO111MODULE=on
 
+# Get the directory where the script is located
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+PROJECT_DIR="$( dirname "$SCRIPT_DIR" )"
+
+# Change to project root
+cd "$PROJECT_DIR"
+
+# Build the React client
 (
   cd client
   npm install --loglevel=error --legacy-peer-deps
   npm run build
 )
 
+# Build the Go application
 go install                                                         \
   ${GO_FLAGS}                                                    \
   -installsuffix "static"                                        \

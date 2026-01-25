@@ -1,4 +1,5 @@
 import React from 'react';
+import PropTypes from 'prop-types';
 
 export default class Env extends React.Component {
   constructor(props) {
@@ -59,5 +60,5 @@ export default class Env extends React.Component {
 }
 
 Env.propTypes =  {
-  apiPath: React.PropTypes.string.isRequired,
+  apiPath: PropTypes.string.isRequired,
 }
