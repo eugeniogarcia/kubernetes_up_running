@@ -559,3 +559,92 @@ ALPACA_PROD_PORT_8080_TCP_PORT	8080
 ALPACA_PROD_PORT	tcp://10.96.107.253:8080
 ALPACA_PROD_PORT_8080_TCP	tcp://10.96.107.253:8080
 ```
+
+### Limpiamos
+
+```ps
+kubectl delete services,deployments -l app
+```
+
+## Ingress
+
+El controlador de Ingress esta compuesto por dos partes. 
+
+- __Proxy de Ingress__: se expone fuera del clúster utilizando un servicio de tipo: LoadBalancer. Este proxy envía solicitudes a servidores "upstream"
+
+- __Reconciliador de Ingress u operador__. El operador de Ingress es responsable de leer y monitorizar objetos de Ingress en la API de Kubernetes y reconfigurar el proxy de Ingress para enrutar el tráfico como se especifica en el recurso de Ingress
+
+![Ingress](image-1.png)
+
+No existe un controlador de Ingress "estándar" integrado en Kubernetes, por lo que el usuario debe instalar uno de entre las muchas implementaciones disponibles. Vamos a utilizar __Contour__.
+
+Para instalarlo:
+
+```ps
+kubectl apply -f https://projectcontour.io/quickstart/contour.yaml
+```
+
+comprobamos 
+
+```ps
+kubectl get svc envoy -n projectcontour -o wide
+```
+
+Los recursos se crean en el namespace `projectcontour`. Podemos ver un deployment (con dos replicas) y un servicio de tipo `LoadBalancer`
+
+```ps
+kubectl get svc,deployments,pods -n projectcontour
+
+NAME              TYPE           CLUSTER-IP      EXTERNAL-IP   PORT(S)                      AGE
+service/contour   ClusterIP      10.96.222.28    <none>        8001/TCP                     3m41s
+service/envoy     LoadBalancer   10.96.177.192   172.18.0.6    80:30796/TCP,443:32096/TCP   3m41s
+
+NAME                      READY   UP-TO-DATE   AVAILABLE   AGE
+deployment.apps/contour   2/2     2            2           3m41s
+
+NAME                                READY   STATUS      RESTARTS   AGE
+pod/contour-5cb8d455bc-pnrt5        1/1     Running     0          3m41s
+pod/contour-5cb8d455bc-v5f9g        1/1     Running     0          3m41s
+pod/contour-certgen-v1-33-1-dgqkw   0/1     Completed   0          3m41s
+pod/envoy-2fj22                     2/2     Running     0          3m41s
+```
+
+Se crea tambien una `CustomResourceDefinition`. 
+
+Al tratarse de una instalación global en el cluster, para poder crear este recurso tenemos que tener permisos de administrador para el cluster.
+
+Para que Ingress funcione correctamente es necesario actualizar el DNS incluyendo la dirección externa del balanceador de carga. Si por ejemplo nuestro dominio fuera `example.com`. Tendremos que configurar dos entradas en el DNS: alpaca.example.com y bandicoot.example.com. 
+
+Si tienes una dirección IP para tu balanceador de carga externo, querrás crear registros A (esto es, asignar la `EXTERNAL-IP` el dominio del balanceador - A record -, y crear alias que apunten al balanceador - CNAME records). Con esto las peticiones al balanceador, o a los alias se enrutaran hacia ingress (en local podemos actualizar el archivo _hosts_).
+
+```ps
+kubectl create deployment be-default --image=docker.io/egsmartin/kuard:latest --replicas=3  --port=8080
+
+kubectl expose deployment be-default
+
+kubectl create deployment alpaca --image=docker.io/egsmartin/kuard:latest --replicas=3 --port=8080
+
+kubectl expose deployment alpaca
+
+kubectl create deployment bandicoot --image=docker.io/egsmartin/kuard:latest --replicas=3 --port=8080
+
+kubectl expose deployment bandicoot
+
+kubectl get services -o wide
+```
+
+
+```yaml
+apiVersion: projectcontour.io/v1
+kind: HTTPProxy
+metadata:
+  name: example
+  namespace: default
+spec:
+  virtualhost:
+    fqdn: local.test
+  routes:
+    - services:
+        - name: my-service
+          port: 80
+```
