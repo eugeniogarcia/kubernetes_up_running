@@ -266,6 +266,14 @@ Otra opción __muy interesante es el port forwarding__. Por ejemplo para que nue
 kubectl port-forward kuard 9000:8080
 ```
 
+Cuando tenemos Pods creados con deployments el nombre del pod se asigna automáticamente con un guid, pero podemos gestionar esto de forma automática, por ejemplo como sigue:
+
+```ps
+$MIPOD=kubectl get pods -l app=alpaca-prod -o jsonpath='{.items[0].metadata.name}'
+kubectl port-forward $MIPOD 9000:8080
+```
+
+
 podemos ver los eventos del cluster:
 
 ```ps
@@ -423,4 +431,131 @@ Son tambien metadata pero una metadata que no se utiliza para clasificar sino pa
 
 ## Service Discovery
 
+Con Service Discovery se resuelve la direccion de cada proceso. Típicamente se usa DNS para resolver este problema, pero en casos en los que un proceso cambia o puede cambiar de dirección con cierta frecuencia, el DNS no es un mecanismos adecuado, incluso cuando bajamos el _TTL_ para asegurar que los clientes _repitan_ la resolución de direcciones con cierta frecuencia. En un entorno como Kubernetes la frecuencia con la que la direccion de los procesos cambia (porque se destruye el proceso, se reubica, o se incrementa el número de instancias del servicio).
 
+Para exponer un servicio se usa `kubectl expose`. Para entenderlo mejor vamos a crear un _deployment_
+
+```ps
+kubectl create deployment alpaca-prod --image=docker.io/egsmartin/kuard:latest --port=8080
+```
+
+aumentamos el número de replicas:
+
+```ps
+kubectl scale deployment alpaca-prod --replicas 3
+```
+
+exponemos el deployment como un servicio:
+
+```ps
+kubectl expose deployment alpaca-prod
+```
+
+Con este comando __Kubernetes intentará crear un Service, pero como no has especificado los puertos, fallará o usará valores por defecto (usara el mismo puero que hayamos elegido exponer en el pod o en el deployment)__ que probablemente no funcionen como esperamos. Al menos debemos indicar:
+
+- __port__: el puerto por el que se accederá al servicio.
+- __target-port__: el puerto interno del contenedor al que se redirige el tráfico (si es diferente).
+- __type__: opcional, para definir si el servicio es `ClusterIP`, `NodePort`, `LoadBalancer`, etc.
+
+__Si queremos exponer más de un puerto, con expose no se puede hacer, se necesitaria usar el objeto `Service` directamente__. Si exponemos directamente el servicio con `Service` directamente, en la especificacion __podemos incluir varias tuplas port `targetPort` name__, En caso de que el tipo de servicio fuerta `NodePort` se crearán automáticamente tantos puertos en los nodos como tuplas tengamos.
+
+Recordar que cuando llamamos al servicio con el LoadBalancer los puertos que usaremos seran los mismos que si llamasemos al servicio usando la IP que le asigno Kubernetes para el cluster.
+
+Creamos otro deployment, aumentamos las replicas y exponemos el servicio:
+
+```ps
+kubectl create deployment bandicoot-prod --image=docker.io/egsmartin/kuard:latest --port=8080
+
+kubectl scale deployment bandicoot-prod --replicas 2
+
+kubectl expose deployment bandicoot-prod
+```
+
+podemos ver los servicios que acabamos de crear:
+
+```ps
+kubectl get services -o wide
+
+NAME             TYPE        CLUSTER-IP      EXTERNAL-IP   PORT(S)    AGE   SELECTOR
+alpaca-prod      ClusterIP   10.96.107.253   <none>        8080/TCP   19m   app=alpaca-prod
+bandicoot-prod   ClusterIP   10.96.37.174    <none>        8080/TCP   18m   app=bandicoot-prod
+kubernetes       ClusterIP   10.96.0.1       <none>        443/TCP    63m   <none>
+```
+
+Kubernetes asigna a cada servicio una `Cluster IP`, que es una direccion virtual que representa el servicio. Si hay varias réplicas en el deployment al que apunta el servicio, cuando llamemos al servicio la petición puede dirigirse a cualquiera de esas réplicas. Tenemos tres tipos de servicio:
+
+- `ClusterIP` (defecto)
+- `NodePort`
+- `LoadBalancer`
+
+NodePort y LoadBalancer incluyen la funcionalidad de ClusterIP. Cuando defines un Service como LoadBalancer, Kubernetes:
+
+- Crea un ClusterIP para comunicación interna.
+- Crea un NodePort automáticamente (aunque no lo veas explícitamente).
+- Solicita al proveedor cloud que cree un balanceador de carga externo que apunte al NodePort.
+
+Cuando usas un Service de tipo LoadBalancer en Kubernetes, se crea un artefacto externo al clúster, que es un balanceador de carga proporcionado por el proveedor de infraestructura (como AWS ELB, Azure Load Balancer, GCP Load Balancer, etc.). 
+
+Kubernetes crea un Service de tipo LoadBalancer, el proveedor cloud detecta esta solicitud y crea un balanceador de carga externo. Ese balanceador tiene como backends:
+
+- Las IP de los nodos del clúster.
+- Los puertos NodePort que Kubernetes asigna automáticamente.
+
+El tráfico que llega al balanceador se enruta a los nodos, y de ahí al Service, que lo redirige a los Pods correspondientes.
+
+### DNS
+
+Kubernetes proporciona un servicio de DNS en cada nodo del cluster. Cuando creamos un servicio automáticamente se crea un _A record_ en el DNS:
+
+`alpaca-prod.default.svc.cluster.local.`
+
+tenemos el nombre del servicio, seguido del namespace, la etiqueta `svc`, y el dominio del cluster. Podemos referirnos desde cualquier pod a este servicio y el DNS resolverá este nombre a la `Cluster IP`. Si estamos en el mismo namespace que el servicio podremos referirnos al servicio simplemente como `alpaca-prod`.
+
+En la aplicación `kuard` tenemos una opción para poder consultar el DNS.
+
+El `Service` reconoce el readiness probe y de modo que solo se enviará tráfico a un determinado Pod cuando es listo. Podemos ver los endpoints de un servicio:
+
+```ps
+kubectl get endpoints alpaca-prod --watch
+
+NAME          ENDPOINTS                                         AGE
+alpaca-prod   10.244.1.3:8080,10.244.1.5:8080,10.244.1.6:8080   27m
+```
+
+las IPs que se muestran son las IPs de los Pods. Figuran tres porque el servicio está apuntando a un deployment que tiene tres IPs. Si hacemos con kuard que un pod falle su readiness probe, será sustituido por otro, que tendrá una IP diferente.
+
+Nótese que asociado a cada servicio se crea un objeto `Endpoint` que dinámicamente se ajusta a las direcciones de los Pods que están detrás del servicio.
+
+### Service discovery manual
+
+Lo que viene a hacer Kubernetes para hacer el discovery es lo siguiente. En primer lugar identifica cuales son los Pods que se corresponden con un servicio/deployment, utilizando la etiqueta `app` (los pods que se crean con un deployment se etiquetan añadiendo con la key `app` y el valor con el nombre del deployment). Las IPs de los Pod serán las IPs de los endpoints del servicio:
+
+```ps
+kubectl get pods -o wide --show-labels
+
+kubectl get pods -o wide --selector=app=alpaca-prod
+```
+
+### Kube-proxy y Cluster IPs
+
+Las IP Virtuales funcionan porque en cada nodo tenemos un proxy - `kube-proxy` - que intercepta todas las peticiones y las resuelve, en el caso de una IP Virtual, a uno de los endpoints asociados al servicio.
+
+![Proxy](image.png)
+
+El kube-proxy monitoriza el API server para detectar cuando se están creando nuevos servicios. Cuando se crea un nuevo servicio el Kube-proxy actualiza las reglas definidas en las `iptables` que gestiona el `kernel` de cada nodo, de modo que se re-escriban los destinos de los paquetes generados en el nodo y se redirijan a los endpoints del servicio. Cuando los endpoints de un servicio cambian (Pods que se añaden, Pods que se retiran, por ejemplo, por no superar el readiness check), las reglas en las iptables se actualizan. La cluster IP como que asigna el API server cuando se crea el servicio no cambia (habría que borrar y recrear el servicio).
+
+El rango de IPs que se asignan a los servicios se configuran con el parámetro `--service-cluster-ip-range` en el binario del `kube-apiserver`. Este rango de IP no se tiene que solapar con las subredes y rangos asignados a los Pods/Nodos.
+
+### Variables de Entorno
+
+Además de actualizar el DNS y el Kube-proxy, despues que se crea un servicio, cuando se cree un Pod Kubernetes definirá una serie de variables de entorno para cada servicio creado (los Pods que ya estaban creado no tendrán estas variables de entorno). Por ejemplo para el servicio `alpaca-prod` que hemos creado, si lanzamos un Pod veremos en él las siguientes variables de entorno:
+
+```ps
+ALPACA_PROD_SERVICE_HOST	10.96.107.253
+ALPACA_PROD_SERVICE_PORT	8080
+ALPACA_PROD_PORT_8080_TCP_PROTO	tcp
+ALPACA_PROD_PORT_8080_TCP_ADDR	10.96.107.253
+ALPACA_PROD_PORT_8080_TCP_PORT	8080
+ALPACA_PROD_PORT	tcp://10.96.107.253:8080
+ALPACA_PROD_PORT_8080_TCP	tcp://10.96.107.253:8080
+```
