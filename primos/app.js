@@ -1,7 +1,9 @@
 const express = require('express');
+const os = require('os');
 
 const app = express();
 const PORT = 8080;
+const HOSTNAME = os.hostname();
 
 // Middleware
 app.use(express.json());
@@ -52,7 +54,8 @@ app.get('/primos/:number', (req, res) => {
     input: number, 
     primos: primos,
     cantidad: primos.length,
-    operation: 'números primos hasta ' + number
+    operation: 'números primos hasta ' + number,
+    host: HOSTNAME
   });
 });
 

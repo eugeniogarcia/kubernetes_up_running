@@ -1,7 +1,9 @@
 const express = require('express');
+const os = require('os');
 
 const app = express();
 const PORT = 8080;
+const HOSTNAME = os.hostname();
 
 // Middleware
 app.use(express.json());
@@ -28,7 +30,8 @@ app.get('/multiplica/:number', (req, res) => {
   res.json({ 
     input: number, 
     result: result,
-    operation: 'multiplica por 2'
+    operation: 'multiplica por 2',
+    host: HOSTNAME
   });
 });
 
