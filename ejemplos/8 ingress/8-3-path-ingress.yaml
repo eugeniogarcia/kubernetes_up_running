@@ -1,0 +1,23 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: path-ingress
+spec:
+  rules:
+  - host: oper.gz.com
+    http:
+      paths:
+      - pathType: Prefix
+        path: "/"
+        backend:
+          service:
+            name: multiplica
+            port:
+              number: 8080
+      - pathType: Prefix
+        path: "/p/"
+        backend:
+          service:
+            name: primos
+            port:
+              number: 8080
