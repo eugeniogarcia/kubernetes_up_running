@@ -3,6 +3,7 @@ kind: Ingress
 metadata:
   name: host-ingress
 spec:
+  ingressClassName: contour
   defaultBackend:
     service:
       name: multiplica

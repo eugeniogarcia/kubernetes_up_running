@@ -3,6 +3,7 @@ kind: Ingress
 metadata:
   name: tls-ingress
 spec:
+  ingressClassName: contour
   tls:
   - hosts:
     - multiplica.gz.com

@@ -3,6 +3,7 @@ kind: Ingress
 metadata:
   name: path-ingress
 spec:
+  ingressClassName: contour
   rules:
   - host: oper.gz.com
     http:

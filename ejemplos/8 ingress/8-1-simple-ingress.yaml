@@ -2,9 +2,9 @@ apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: simple-ingress
-  annotations:
-    kubernetes.io/ingress.class: contour
 spec:
+  ingressClassName: contour
+  
   rules:
     - host: gz.com
       http:
