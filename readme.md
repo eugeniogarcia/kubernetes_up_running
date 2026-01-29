@@ -629,18 +629,68 @@ kubectl expose deployment primos
 kubectl get services -o wide
 ```
 
+### Simple
+
+En `8-1-simple-ingress.yaml` tenemos un ejemplo simple
+
+- se trada de un recuros _Ingress_:
 
 ```yaml
-apiVersion: projectcontour.io/v1
-kind: HTTPProxy
+apiVersion: networking.k8s.io/v1
+kind: Ingress
 metadata:
-  name: example
-  namespace: default
+  name: simple-ingress
+  annotations:
+    kubernetes.io/ingress.class: contour
+  defaultBackend:
+    service:
+      name: multiplica
+      port:
+        number: 8080    
 spec:
-  virtualhost:
-    fqdn: local.test
-  routes:
-    - services:
-        - name: my-service
-          port: 80
+
+[...]
+```
+
+que define varias reglas. Cada regla se activa cuando la petición se recibe de un determinado `host`. En la regla especificamos diferentes backends en función del `path` utilizado. Para indicar el backend se informa el nombre del servicio y el puerto que hay que utilizar. Por ejemplo para `gz.com` definimos do rutas:
+
+```yaml
+  rules:
+    - host: gz.com
+      http:
+        paths:
+          - path: /multiplica
+            pathType: Prefix
+            backend:
+              service:
+                name: multiplica
+                port:
+                  number: 8080
+          - path: /primos
+            pathType: Prefix
+            backend:
+              service:
+                name: primos
+                port:
+                  number: 8080
+
+[...]
+
+```
+
+nótese que hemos definido un backend por defecto, así que cuando ninguna de las reglas cualifica (por ejemplo si llamamos a localhost - [recordemos que localhost esta mapeado por el puerto 80 y 443 con el Pod de Contour/Envoy](networking.md))
+
+
+### XXXXXXXXXX
+
+vamos a crear
+
+veamos los recursos ingres que tenemos creados
+
+```ps
+kubectl get ingress
+
+
+NAME             CLASS     HOSTS                                    ADDRESS      PORTS   AGE
+simple-ingress   contour   gz.com,multiplica.gz.com,primos.gz.com   172.18.0.6   80      9m57s
 ```
