@@ -618,17 +618,13 @@ Para que Ingress funcione correctamente es necesario actualizar el DNS incluyend
 Si tienes una dirección IP para tu balanceador de carga externo, querrás crear registros A (esto es, asignar la `EXTERNAL-IP` el dominio del balanceador - A record -, y crear alias que apunten al balanceador - CNAME records). Con esto las peticiones al balanceador, o a los alias se enrutaran hacia ingress (en local podemos actualizar el archivo _hosts_).
 
 ```ps
-kubectl create deployment be-default --image=docker.io/egsmartin/kuard:latest --replicas=3  --port=8080
+kubectl create deployment multiplica --image=docker.io/egsmartin/multiplica:latest --replicas=3  --port=8080
 
-kubectl expose deployment be-default
+kubectl expose deployment multiplica
 
-kubectl create deployment alpaca --image=docker.io/egsmartin/kuard:latest --replicas=3 --port=8080
+kubectl create deployment primos --image=docker.io/egsmartin/primos:latest --replicas=3 --port=8080
 
-kubectl expose deployment alpaca
-
-kubectl create deployment bandicoot --image=docker.io/egsmartin/kuard:latest --replicas=3 --port=8080
-
-kubectl expose deployment bandicoot
+kubectl expose deployment primos
 
 kubectl get services -o wide
 ```
