@@ -23,7 +23,7 @@ spec:
                 name: primos
                 port:
                   number: 8080
-    - host: multiplica.example.com
+    - host: multiplica.gz.com
       http:
         paths:
           - path: /
