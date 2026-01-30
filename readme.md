@@ -55,7 +55,7 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
 Construimos la imagen:
 
 ```ps
-kuard> docker build -t kuard .
+docker build -t kuard .
 ```
 
 podemos ver las imagenes:
@@ -266,13 +266,14 @@ Otra opción __muy interesante es el port forwarding__. Por ejemplo para que nue
 kubectl port-forward kuard 9000:8080
 ```
 
+**NOTA**: tambien podemos hacer un port forward a un servicio. Si hubieramos hecho `kubectl expose kuard`, podríamos hacer un port-forward al servicio con `kubectl port-forward svc\kuard 9000:8080`
+
 Cuando tenemos Pods creados con deployments el nombre del pod se asigna automáticamente con un guid, pero podemos gestionar esto de forma automática, por ejemplo como sigue:
 
 ```ps
 $MIPOD=kubectl get pods -l app=alpaca-prod -o jsonpath='{.items[0].metadata.name}'
 kubectl port-forward $MIPOD 9000:8080
 ```
-
 
 podemos ver los eventos del cluster:
 
@@ -618,22 +619,22 @@ Para que Ingress funcione correctamente es necesario actualizar el DNS incluyend
 Si tienes una dirección IP para tu balanceador de carga externo, querrás crear registros A (esto es, asignar la `EXTERNAL-IP` el dominio del balanceador - A record -, y crear alias que apunten al balanceador - CNAME records). Con esto las peticiones al balanceador, o a los alias se enrutaran hacia ingress (en local podemos actualizar el archivo _hosts_).
 
 ```ps
-kubectl create deployment multiplica --image=docker.io/egsmartin/multiplica:latest --replicas=3  --port=8080
+kubectl apply -f ejemplos.yaml
 
-kubectl expose deployment multiplica
-
-kubectl create deployment primos --image=docker.io/egsmartin/primos:latest --replicas=3 --port=8080
-
-kubectl expose deployment primos
+kubectl get deployment -o wide
 
 kubectl get services -o wide
 ```
 
-### Simple
+### Ingress
 
-En `8-1-simple-ingress.yaml` tenemos un ejemplo simple
+Al hacer `ejemplos.yaml` hemos creado tambien un objeto Ingress:
 
-- se trada de un recuros _Ingress_:
+```ps
+kubectl get ingress -o wide
+```
+
+la definición de Ingress es la siguiente:
 
 ```yaml
 apiVersion: networking.k8s.io/v1
@@ -675,17 +676,11 @@ que define varias reglas. Cada regla se activa cuando la petición se recibe de 
                   number: 8080
 
 [...]
-
 ```
 
 nótese que hemos definido un backend por defecto, así que cuando ninguna de las reglas cualifica (por ejemplo si llamamos a localhost - [recordemos que localhost esta mapeado por el puerto 80 y 443 con el Pod de Contour/Envoy](networking.md))
 
-
-### XXXXXXXXXX
-
-vamos a crear
-
-veamos los recursos ingres que tenemos creados
+Veamos los recursos ingres que tenemos creados:
 
 ```ps
 kubectl get ingress
@@ -694,3 +689,10 @@ kubectl get ingress
 NAME             CLASS     HOSTS                                    ADDRESS      PORTS   AGE
 simple-ingress   contour   gz.com,multiplica.gz.com,primos.gz.com   172.18.0.6   80      9m57s
 ```
+
+Es importante destacar que con el Ingress que hemos creado arriba cuando llamamos a `gz.com/multiplica` se enviará la petición al backend `multiplica` puerto 8080, pero **importante, el recurso que llegará será `/multiplica`**. Esto significa que **no se hace un rewrite**. Para hacer un rewrite tenemos que usar otro objeto `HTTPProxy`.
+
+### HTTPProxy
+
+El objeto Ingress se incorporo en Kubernetes en la versión 1.1 para describir un reverse proxy de forma global dentro de un cluster. Desde entoces el objeto Ingress no ha evolucionado lo que ha hecho que profileferen anotaciones por medio de las cueles extender la funcionalidad de enrutado de Ingress (que es muy limitada). Con el objeto **HTTPProxy** Contour proporciona una *Custom Resource Definition (CRD)* que ![evoluciona la funcionalidad de Ingress](https://projectcontour.io/docs/v1.4.0/httpproxy/).
+

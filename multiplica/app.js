@@ -26,11 +26,14 @@ app.get('/multiplica/:number', (req, res) => {
     });
   }
   
-  const result = number * 2;
+  const envMultiplier = parseFloat(process.env.MULTIPLIER);
+  const multiplier = isNaN(envMultiplier) ? 2 : envMultiplier;
+  const result = number * multiplier;
   res.json({ 
     input: number, 
+    multiplier: multiplier,
     result: result,
-    operation: 'multiplica por 2',
+    operation: `multiplica por ${multiplier}`,
     host: HOSTNAME
   });
 });
@@ -43,6 +46,7 @@ app.get('/health', (req, res) => {
 // 404 handler
 app.use((req, res) => {
   res.status(404).json({ 
+    applicacion: `multiplica por ${multiplier}`,
     error: 'No Encontrado',
     usage: 'GET /multiplica/:number',
     example: 'GET /multiplica/21'
