@@ -976,5 +976,3 @@ spec:
       replacePrefix:
       - replacement: /new/prefix
 ```
-
-### TLS
