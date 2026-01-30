@@ -685,3 +685,296 @@ que define varias reglas. Cada regla se activa cuando la petición se recibe de 
 
 El objeto Ingress se incorporo en Kubernetes en la versión 1.1 para describir un reverse proxy de forma global dentro de un cluster. Desde entoces el objeto Ingress no ha evolucionado lo que ha hecho que profileferen anotaciones por medio de las cueles extender la funcionalidad de enrutado de Ingress (que es muy limitada). Con el objeto **HTTPProxy** Contour proporciona una *Custom Resource Definition (CRD)* que ![evoluciona la funcionalidad de Ingress](https://projectcontour.io/docs/v1.4.0/httpproxy/).
 
+Hemos creado en `ejemplos.yaml` tambien algún ejemplo de HTTProxy. A continuación describimos las funcionalidades principales del HTTProxy.
+
+A diferencia de Ingress, **HTTPProxy solo permite un root domain por objeto** - HTTPProxy. En Ingress podíamos hacer:
+
+```yaml
+apiVersion: extensions/v1beta1
+kind: Ingress
+metadata:
+  name: name-example
+spec:
+  rules:
+  - host: foo1.bar.com
+    http:
+      paths:
+      - backend:
+          serviceName: s1
+          servicePort: 80
+  - host: bar1.bar.com
+    http:
+      paths:
+      - backend:
+          serviceName: s2
+          servicePort: 80
+```
+
+con HTTProxy hay que partirlo en dos:
+
+```yaml
+apiVersion: projectcontour.io/v1
+kind: HTTPProxy
+metadata:
+  name: name-example-foo
+  namespace: default
+spec:
+  virtualhost:
+    fqdn: foo1.bar.com
+  routes:
+    - services:
+      - name: s1
+        port: 80
+---
+apiVersion: projectcontour.io/v1
+kind: HTTPProxy
+metadata:
+  name: name-example-bar
+  namespace: default
+spec:
+  virtualhost:
+    fqdn: bar1.bar.com
+  routes:
+    - services:
+        - name: s2
+          port: 80
+```
+
+**Cada ruta en el HTTPProxy puede tener una o varias condiciones**. Las condiciones se combinan con `AND`. Las condiciones pueden ser un `prefix` o una `header`. Cuando se utilizan condiciones `prefix` tienen que empezar con `\`. Las condiciones `header` incluyen un nombre y un operador. Los operadores pueden ser `present`, `contains`, `notcontains`, `exact` o `notexact`. Por ejemplo, aqui definimos para el dominio tres posibles rutas a backends. Dos están condicionadas a la presencia de un header, la tercera actua por defecto (la rutas se procesan en orden de arriba a abajo, y cuando una cualifica se sale por esa ruta):
+
+```yaml
+apiVersion: projectcontour.io/v1
+kind: HTTPProxy
+metadata:
+  name: multiple-paths
+  namespace: default
+spec:
+  virtualhost:
+    fqdn: multi-path.bar.com
+  routes:
+    - conditions:
+      - header:
+          name: x-os
+          contains: ios
+      services:
+        - name: s1
+          port: 80
+    - conditions:
+      - header:
+          name: x-os
+          contains: android
+      services:
+        - name: s2
+          port: 80
+    - services:
+        - name: s3
+          port: 80
+```
+
+**en una ruta podemos tener uno o varios servicios**:
+
+```yaml
+apiVersion: projectcontour.io/v1
+kind: HTTPProxy
+metadata:
+  name: multiple-upstreams
+  namespace: default
+spec:
+  virtualhost:
+    fqdn: multi.bar.com
+  routes:
+    - services:
+        - name: s1
+          port: 80
+        - name: s2
+          port: 80
+```
+
+en este ejemplo cuando llamemos a `multi.bar.com` HTTProxy hará balanceo de carga distribuyendo las peticiones entre los dos servicios asociados a la ruta, s1 y s2. Podemos **aplicar un peso a cada servicio**:
+
+```yaml
+apiVersion: projectcontour.io/v1
+kind: HTTPProxy
+metadata:
+  name: weight-shifting
+  namespace: default
+spec:
+  virtualhost:
+    fqdn: weights.bar.com
+  routes:
+    - services:
+        - name: s1
+          port: 80
+          weight: 10
+        - name: s2
+          port: 80
+          weight: 90
+```
+
+los pesos no tienen porque sumar 100, se tratan de forma relativa. Si unas rutas tienen peso y otras no, las rutas sin peso se asume que tienen un peso 0. Si ninguna ruta tiene pesos se distribuyen las peticiones de forma equitativa entre los servicios.
+
+También es posible **manipular las cabeceras**, específicamente en cada servicio como hacemos en este ejemplo para añadir y quitar cabeceras:
+
+```yaml
+apiVersion: projectcontour.io/v1
+kind: HTTPProxy
+metadata:
+  name: header-manipulation
+  namespace: default
+spec:
+  virtualhost:
+    fqdn: headers.bar.com
+  routes:
+    - services:
+        - name: s1
+          port: 80
+          requestHeadersPolicy:
+            set:
+              - name: X-Foo
+                value: bar
+            remove:
+              - X-Baz
+          responseHeadersPolicy:
+            set:
+              - name: X-Service-Name
+                value: s1
+            remove:
+              - X-Internal-Secret
+```
+
+o por ruta:
+
+```yaml
+apiVersion: projectcontour.io/v1
+kind: HTTPProxy
+metadata:
+  name: header-manipulation
+  namespace: default
+spec:
+  virtualhost:
+    fqdn: headers.bar.com
+  routes:
+    - services:
+        - name: s1
+          port: 80
+      requestHeadersPolicy:
+        set:
+          - name: X-Foo
+            value: bar
+        remove:
+          - X-Baz
+      responseHeadersPolicy:
+        set:
+          - name: X-Service-Name
+            value: s1
+        remove:
+          - X-Internal-Secret
+```
+
+Una funcionalidad muy interesante es el **traffic mirroring**. A cada ruta se le puede asociar un espejo de modo que todo el tráfico que fluya por la ruta también fluya por el espejo:
+
+```yaml
+apiVersion: projectcontour.io/v1
+kind: HTTPProxy
+metadata:
+  name: traffic-mirror
+  namespace: default
+spec:
+  virtualhost:
+    fqdn: www.example.com
+  routes:
+    - conditions:
+      - prefix: /
+      services:
+        - name: www
+          port: 80
+        - name: www-mirror
+          port: 80
+          mirror: true
+```
+
+También se puede configurar un **timeout y reintentos**. En este ejemplo configuramos un timeout de 1 segundo
+
+```yaml
+apiVersion: projectcontour.io/v1
+kind: HTTPProxy
+metadata:
+  name: response-timeout
+  namespace: default
+spec:
+  virtualhost:
+    fqdn: timeout.bar.com
+  routes:
+  - timeoutPolicy:
+      response: 1s
+      idle: 10s
+    retryPolicy:
+      count: 3
+      perTryTimeout: 150ms
+    services:
+    - name: s1
+      port: 80
+```
+
+- timeoutPolicy
+  - **response**: The maximum time (1s) that the upstream service has to send a complete response back to the client. This includes the time to receive all response headers and body. If the response is not fully received within this time, the connection is terminated.
+  - **idle**: The maximum time (10s) of inactivity on a connection before it is closed. This is useful for keeping long-lived connections alive by detecting stalled or hung connections.
+
+  response timeout measures the total time for a complete response, idle timeout measures periods of inactivity/no data flow
+
+- retryPolicy
+  - **count**: The maximum number of retries (3) to attempt if the request fails
+  - **perTryTimeout**: The timeout (150ms) for each individual retry attempt. This timeout applies to each retry independently.
+
+  The **perTryTimeout** does NOT override the overall **response** timeout. Instead: **perTryTimeout** (150ms) = timeout for EACH single attempt/retry. **response** timeout (1s) = timeout for the ENTIRE request lifecycle (all retries combined must complete within 1s). Both timeouts work together: each retry attempt has 150ms, but all retries collectively cannot exceed 1 second total.
+
+Tambien se soporta hacer **health checks** que Envoy ejecuta períodicamente. Estos checks son independientes de los que hayamos configurado en kubernetes:
+
+```yaml
+apiVersion: projectcontour.io/v1
+kind: HTTPProxy
+metadata:
+  name: health-check
+  namespace: default
+spec:
+  virtualhost:
+    fqdn: health.bar.com
+  routes:
+  - conditions:
+    - prefix: /
+    healthCheckPolicy:
+      path: /healthy
+      intervalSeconds: 5
+      timeoutSeconds: 2
+      unhealthyThresholdCount: 3
+      healthyThresholdCount: 5
+    services:
+      - name: s1-health
+        port: 80
+      - name: s2-health
+        port: 80
+```
+
+HTTPProxy permite hacer **rewriting de la petición http ANTES de enviar al servicio en el backend**. El rewrintting se hace una vez se ha elegido una ruta, no influye por lo tanto en la elección de la ruta a seguir.
+
+The pathRewritePolicy field specifies how the path prefix should be rewritten. The replacePrefix rewrite policy specifies a replacement string for a HTTP request path prefix match. When this field is present, the path prefix that the request matched is replaced by the text specified in the replacement field. If the HTTP request path is longer than the matched prefix, the remainder of the path is unchanged.
+
+```yaml
+apiVersion: projectcontour.io/v1
+kind: HTTPProxy
+metadata:
+  name: rewrite-example
+  namespace: default
+spec:
+  virtualhost:
+    fqdn: rewrite.bar.com
+  routes:
+  - services:
+    - name: s1
+      port: 80
+    pathRewritePolicy:
+      replacePrefix:
+      - replacement: /new/prefix
+```
+
+### TLS

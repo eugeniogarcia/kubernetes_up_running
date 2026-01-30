@@ -134,3 +134,58 @@ spec:
                 name: primos
                 port:
                   number: 80 # puerto donde se expone el servicio
+---
+apiVersion: projectcontour.io/v1
+kind: HTTPProxy
+metadata:
+  name: balanceo
+  namespace: default
+spec:
+  virtualhost:
+    fqdn: multiplica.gz.com
+  routes:
+    - conditions:
+      - prefix: /
+      services:
+        - name: mult3
+          port: 80
+          weight: 30
+        - name: mult2
+          port: 80
+          weight: 70
+      loadBalancerPolicy:
+        strategy: RoundRobin # Estrategia de balanceo de carga. Sino se informa se aplica RoundRobin. Otras opciones son Random y WeightedLeastRequest. Podemos habilitar afinidad de sesion informando como strategy Cookie.
+---
+apiVersion: projectcontour.io/v1
+kind: HTTPProxy
+metadata:
+  name: operaciones
+  namespace: default
+spec:
+  virtualhost:
+    fqdn: oper.gz.com
+  routes:
+    - conditions:
+      - prefix: /m3
+      services:
+        - name: mult3
+          port: 80
+      pathRewritePolicy:
+        replacePrefix:
+        - replacement: /multiplica
+    - conditions:
+      - prefix: /m2
+      services:
+        - name: mult2
+          port: 80
+      pathRewritePolicy:
+        replacePrefix:
+        - replacement: /multiplica
+    - conditions:
+      - prefix: /p
+      services:
+        - name: primos
+          port: 80
+      pathRewritePolicy:
+        replacePrefix:
+        - replacement: /primos
