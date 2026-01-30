@@ -42,6 +42,7 @@ spec:
         imagePullPolicy: Always
         ports:
         - containerPort: 8080
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -108,15 +109,17 @@ metadata:
   name: simple-ingress
 spec:
   ingressClassName: contour
-  defaultBackend:
-    service:
-      name: mult3
-      port: 
-        number: 80 # puerto donde se expone el servicio
   rules:
     - host: gz.com
       http:
         paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: mult3
+                port:
+                  number: 80
           - path: /multiplica
             pathType: Prefix
             backend:

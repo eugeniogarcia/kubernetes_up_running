@@ -643,54 +643,43 @@ metadata:
   name: simple-ingress
   annotations:
     kubernetes.io/ingress.class: contour
-  defaultBackend:
-    service:
-      name: multiplica
-      port:
-        number: 8080    
 spec:
 
 [...]
 ```
 
-que define varias reglas. Cada regla se activa cuando la petición se recibe de un determinado `host`. En la regla especificamos diferentes backends en función del `path` utilizado. Para indicar el backend se informa el nombre del servicio y el puerto que hay que utilizar. Por ejemplo para `gz.com` definimos do rutas:
+que define varias reglas. Cada regla se activa cuando la petición se recibe de un determinado `host`. En la regla especificamos diferentes backends en función del `path` utilizado. Para indicar el backend se informa el nombre del servicio y el puerto que hay que utilizar. Por ejemplo para `gz.com` definimos tres rutas:
 
 ```yaml
+  ingressClassName: contour
   rules:
     - host: gz.com
       http:
         paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: mult3
+                port:
+                  number: 80
           - path: /multiplica
             pathType: Prefix
             backend:
               service:
-                name: multiplica
+                name: mult2
                 port:
-                  number: 8080
+                  number: 80 # puerto donde se expone el servicio
           - path: /primos
             pathType: Prefix
             backend:
               service:
                 name: primos
                 port:
-                  number: 8080
+                  number: 80 # puerto donde se expone el servicio
 
 [...]
 ```
-
-nótese que hemos definido un backend por defecto, así que cuando ninguna de las reglas cualifica (por ejemplo si llamamos a localhost - [recordemos que localhost esta mapeado por el puerto 80 y 443 con el Pod de Contour/Envoy](networking.md))
-
-Veamos los recursos ingres que tenemos creados:
-
-```ps
-kubectl get ingress
-
-
-NAME             CLASS     HOSTS                                    ADDRESS      PORTS   AGE
-simple-ingress   contour   gz.com,multiplica.gz.com,primos.gz.com   172.18.0.6   80      9m57s
-```
-
-Es importante destacar que con el Ingress que hemos creado arriba cuando llamamos a `gz.com/multiplica` se enviará la petición al backend `multiplica` puerto 8080, pero **importante, el recurso que llegará será `/multiplica`**. Esto significa que **no se hace un rewrite**. Para hacer un rewrite tenemos que usar otro objeto `HTTPProxy`.
 
 ### HTTPProxy
 

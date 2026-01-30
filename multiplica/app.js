@@ -45,6 +45,8 @@ app.get('/health', (req, res) => {
 
 // 404 handler
 app.use((req, res) => {
+  const envMultiplier = parseFloat(process.env.MULTIPLIER);
+  const multiplier = isNaN(envMultiplier) ? 2 : envMultiplier;
   res.status(404).json({ 
     applicacion: `multiplica por ${multiplier}`,
     error: 'No Encontrado',
