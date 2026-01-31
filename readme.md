@@ -1,3 +1,71 @@
+## Instalación
+
+En primer lugar comprobamos que el cluster este ok:
+
+```ps
+kubectl cluster-info
+```
+
+### Contour/Envoy
+
+```ps
+kubectl apply -f https://projectcontour.io/quickstart/contour.yaml
+```
+
+### Metrics Server
+
+Descargamos los componentes del metrics server:
+
+```ps
+kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
+```
+
+Kind utiliza certificados autofirmados así que es necesario configurar el metrics server. Podemos hacerlo manualmente o con un comando. Manualmente sería así. Editamos la configuración del deployment:
+
+```ps
+kubectl edit deployment metrics-server -n kube-system
+```
+
+En el editor que se abre, busca la sección `spec.template.spec.containers[0].args` (bajo el contenedor metrics-server) hay que agregar el siguiente argumento `--kubelet-insecure-tls`. La configuración quedaría así:
+
+```ps
+spec:
+  containers:
+  - args:
+    - --cert-dir=/tmp
+    - --secure-port=10250
+    - --kubelet-preferred-address-types=InternalIP,ExternalIP,Hostname
+    - --kubelet-use-node-status-port
+    - --metric-resolution=15s
+    - --kubelet-insecure-tls
+```
+
+esto mismo lo podemos hacer con esta instrucción
+
+```ps
+kubectl patch deployment metrics-server -n kube-system --type='json' -p='[{"op": "add", "path": "/spec/template/spec/containers/0/args/-", "value": "--kubelet-insecure-tls"}]'
+```
+
+con esto quedaría configurado em servidor de métricas. Podemos confirmar que el pod esta operativo:
+
+```ps
+kubectl get pods -n kube-system | findstr metrics-server
+
+metrics-server-5f54fb74d9-z7tl5                 1/1     Running   2 (16m ago)   14h
+```
+
+Ahora ya podemos ver el consumo de recursos de los pods, por ejemplo:
+
+```ps
+kubectl top nodes
+
+NAME                    CPU(cores)   CPU(%)   MEMORY(bytes)   MEMORY(%)
+desktop-control-plane   157m         1%       588Mi           7%
+desktop-worker          28m          0%       264Mi           3%
+```
+
+nos muestra el consumo de cpu, y de memoria.
+
 ## dockerfile
 
 Antes de comentar el dockerfile, refrescar algunos comandos de go que pueden ser interesantes:
@@ -976,3 +1044,65 @@ spec:
       replacePrefix:
       - replacement: /new/prefix
 ```
+
+## Replicaset
+
+Creamos el replicaset `kubectl apply -f kuard-rs.yaml`, y vemos que e ha creado: 
+
+```ps
+kubectl describe rs kuard
+```
+
+los pods esta relacionados con el replicaset indirectamente, a traves de la etiqueta. El control loop se encarga de que haya creadas el número de réplicas especificado. Podemos ver inspeccionando el Pod que esta vinculado al rs:
+
+```ps
+kubectl get pod kuard-grxxh -o=jsonpath='{.metadata.ownerReferences[0].name}'
+```
+
+podemos recuperar los pods usando las etiquetas:
+
+```ps
+kubectl get pods -l app=kuard,version=2
+```
+
+escalamos el rs:
+
+```ps
+kubectl scale replicasets kuard --replicas=4
+```
+
+### Autoscaling
+
+- Escalado horizontal (HPA). Añadir o quitar replicas
+- Escalado vertical. Aumentar o reducir los recursos asignados a un pod
+
+para utilizar autoscaling necesitamos tener instalado el `metrics-server` (ver al apartado _instalación_). Hace un seguimiento de las métricas y las hace accesibles con una api que hace posible la función de autoescalado. Podemos ver si tenemos el pod de metrics mirando el namespace _kube-system_:
+
+```ps
+kubectl get pods --namespace=kube-system
+
+kubectrl top nodes
+```
+
+ya podemos crear un autoescalar. Por ejemplo en para este replicaset vamos a fijar el umbral en 80% de cpu, contemplando entre 2 y 5 pods:
+
+```ps
+kubectl autoscale rs kuard --min=2 --max=5 --cpu-percent=80
+```
+
+```ps
+get hpa
+
+NAME    REFERENCE          TARGETS       MINPODS   MAXPODS   REPLICAS   AGE
+kuard   ReplicaSet/kuard   cpu: 0%/80%   2         5         3          99s
+```
+
+para eliminar el replica set:
+
+```ps
+kubectl delete rs kuard
+
+kubectl delete rs kuard --cascade=false
+```
+
+el segundo comando no elimina los pods
