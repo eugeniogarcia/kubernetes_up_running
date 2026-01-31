@@ -1,0 +1,18 @@
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: primos-hpa
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment # Vamos a escalar un deployment (podria haber sido una replicaset)
+    name: primos-deployment
+  minReplicas: 1 # número mínimo de réplicas
+  maxReplicas: 10 # número máximo de réplicas
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu #vigilamos la cpu
+      target:
+        type: Utilization
+        averageUtilization: 50 # no puede superar el 50% de uso de cpu

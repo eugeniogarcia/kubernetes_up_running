@@ -1106,3 +1106,9 @@ kubectl delete rs kuard --cascade=false
 ```
 
 el segundo comando no elimina los pods
+
+### Caso Práctico
+
+Vamos a hacer un experimento con el balanceador utilizando un par de endpoints que he creado en los servicios multiplica y primos, y usando **k6**, un generador de carga de Grafana.
+
+He creado un deployment, servicio y un hpa en `primos*.yaml`.

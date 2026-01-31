@@ -1,0 +1,38 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: primos-deployment
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: primos
+  template:
+    metadata:
+      labels:
+        app: primos
+    spec:
+      containers:
+      - name: primos
+        image: docker.io/egsmartin/primos:latest
+        ports:
+        - containerPort: 8080 # puerto del contenedor
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 256Mi
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080 # puerto para la probe. Pasados 30 segundos tenemos 10 para contestar. Sino contestamos no se serviran peticiones
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8080 # puerto para la probe. Si no se supera se destruirá y creará otro pod
+          initialDelaySeconds: 5 # esperamos 5 segundos para lanzar la probe
+          periodSeconds: 5 # y cada 5 segundos la comprobamos

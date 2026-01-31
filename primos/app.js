@@ -38,6 +38,25 @@ function obtenerPrimos(n) {
   return primos;
 }
 
+// Función para simular consumo de CPU
+function consumirCPU(iteraciones) {
+  let resultado = 0;
+  for (let i = 0; i < iteraciones; i++) {
+    resultado += Math.sqrt(i) * Math.sin(i);
+  }
+  return resultado;
+}
+
+// Función para simular consumo de memoria
+function consumirMemoria(mb) {
+  const bytes = mb * 1024 * 1024;
+  const array = new Array(bytes / 4); // Array de floats (4 bytes cada uno)
+  for (let i = 0; i < array.length; i++) {
+    array[i] = Math.random();
+  }
+  return array.length;
+}
+
 // GET /primos/:number
 app.get('/primos/:number', (req, res) => {
   const number = parseInt(req.params.number);
@@ -55,6 +74,33 @@ app.get('/primos/:number', (req, res) => {
     primos: primos,
     cantidad: primos.length,
     operation: 'números primos hasta ' + number,
+    host: HOSTNAME
+  });
+});
+
+app.get('/load/:cpu/:mem', (req, res) => {
+  const cpu = parseInt(req.params.cpu) || 1000000; // Iteraciones por defecto
+  const mem = parseInt(req.params.mem) || 10; // MB por defecto
+  
+  if (cpu < 0 || mem < 0) {
+    return res.status(400).json({ 
+      error: 'Parámetros incorrectos',
+      example: 'GET /load/1000000/10'
+    });
+  }
+  
+  // Consumir CPU
+  const cpuResult = consumirCPU(cpu);
+  
+  // Consumir memoria
+  const memResult = consumirMemoria(mem);
+  
+  res.json({ 
+    cpu_iterations: cpu,
+    cpu_result: cpuResult,
+    mem_mb: mem,
+    mem_elements: memResult,
+    operation: `consumir ${cpu} iteraciones CPU y ${mem} MB memoria`,
     host: HOSTNAME
   });
 });
