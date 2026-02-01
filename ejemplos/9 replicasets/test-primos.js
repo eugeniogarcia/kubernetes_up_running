@@ -16,6 +16,7 @@ export const options = {
 };
 
 const hostname = __ENV.HOSTNAME_API || 'gz.com';
+const reportsPath = __ENV.REPORTS_PATH || 'resultados/k6/reports';
 
 export default function() {
   let res = http.get(`http://${hostname}/load/1/10`); // 1M interaciones CPU, 10M memoria
@@ -26,7 +27,7 @@ export default function() {
 // customiza el informe generado por k6
 export function handleSummary(data) {
   return {
-    'resultados/k6/reports/replicasets_report.html': htmlReport(data), // crea el informe indicado en la key a partir del resultado (que se pasa en data)
-    'resultados/k6/reports/replicasets_report.json': JSON.stringify(data),
+    `${reportsPath}/replicasets_report.html`: htmlReport(data), // crea el informe indicado en la key a partir del resultado (que se pasa en data)
+    `${reportsPath}/replicasets_report.json`: JSON.stringify(data),
   };
 }

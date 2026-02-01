@@ -1545,6 +1545,3 @@ y lanzamos el test:
 ```ps
 kubectl apply -f .\test-primos-testrun.yaml
 ```
-
-
-##
