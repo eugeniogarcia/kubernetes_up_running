@@ -79,13 +79,13 @@ app.get('/primos/:number', (req, res) => {
 });
 
 app.get('/load/:cpu/:mem', (req, res) => {
-  const cpu = parseInt(req.params.cpu) || 1000000; // Iteraciones por defecto
+  const cpu = parseInt(req.params.cpu)*1000000 || 1000000; // Iteraciones por defecto
   const mem = parseInt(req.params.mem) || 10; // MB por defecto
   
   if (cpu < 0 || mem < 0) {
     return res.status(400).json({ 
       error: 'Parámetros incorrectos',
-      example: 'GET /load/1000000/10'
+      example: 'GET /load/1/10'
     });
   }
   
