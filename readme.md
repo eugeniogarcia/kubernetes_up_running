@@ -66,6 +66,20 @@ desktop-worker          28m          0%       264Mi           3%
 
 nos muestra el consumo de cpu, y de memoria.
 
+### K6
+
+K6 es una herramienta open source de Grafana que nos permite ejecutar pruebas de rendimiento. K6 puede ejecutarse en la nube de Grafana (coste), en local, o de forma distribuida en un cluster kubernetes. Para ejecutar en un clister kubernetes necesitamos instalar el operador:
+
+```ps
+curl.exe https://raw.githubusercontent.com/grafana/k6-operator/main/bundle.yaml | kubectl apply -f -
+```
+
+para desinstalar:
+
+```ps
+curl https://raw.githubusercontent.com/grafana/k6-operator/main/bundle.yaml | kubectl delete -f -
+```
+
 ## dockerfile
 
 Antes de comentar el dockerfile, refrescar algunos comandos de go que pueden ser interesantes:
@@ -1109,6 +1123,276 @@ el segundo comando no elimina los pods
 
 ### Caso Práctico
 
-Vamos a hacer un experimento con el balanceador utilizando un par de endpoints que he creado en los servicios multiplica y primos, y usando **k6**, un generador de carga de Grafana.
+Vamos a hacer un experimento con el balanceador utilizando un par de endpoints que he creado en los servicios multiplica y primos, y usando **![k6](https://grafana.com/docs/k6/latest/)**, un generador de carga de Grafana.
 
 He creado un deployment, servicio y un hpa en `primos*.yaml`.
+
+#### Script base
+
+Creamos una plantilla con el script que vamos a usar para ejecutar la prueba:
+
+```ps
+docker run --rm -i -v ${PWD}:/app -w /app grafana/k6 new
+```
+
+podemos usar también _k6_ instalado en local para crear el archivo
+
+```ps
+# crea un script base
+k6 run script.js
+
+# crea/sobreescribe el script base
+k6.exe new -f test.js
+```
+
+En la documentación podemos información [sobre como construir peticiones http](https://grafana.com/docs/k6/latest/using-k6/http-requests/).
+
+
+#### Ejecutar el script
+
+Podemos ejecutar el script con _k6_:
+
+```ps
+cat script.js | docker run --rm -i grafana/k6 run -
+```
+
+también podemos crear **usuarios virtuales (VUs)**, por ejemplo aquí ejecutamos el mismo test con diez usuarios virtuales, y ejecutamos el tets durante 30 segundos:
+
+```ps
+cat script.js | docker run --rm -i grafana/k6 run --vus 10 --duration 30s -
+```
+
+podemos indicar estas opciones en el objeto options, así no es necesario pasarlas como argumentos en cada ejecución:
+
+```js
+export const options = {
+  vus: 10, // numero de usuarios virtuales
+  duration: '30s', // duracion de la prueba
+  iterations: 10, // número de iteraciones
+};
+```
+
+Hay tres modos de ejecución:
+
+- **Local**
+
+```ps
+k6 run script.js
+```
+
+- [**distribuido** en un cluster de kubernetes](https://grafana.com/docs/k6/latest/set-up/set-up-distributed-k6/). Tenemos que instalar primero el operador K6 (ver apartado instalación).
+
+##### Ejecución distribuida (en un cluster de kubernetes)
+
+Este es un manifiesto completo para hacer un test run.
+
+```yaml
+apiVersion: k6.io/v1alpha1
+kind: TestRun # lanzamos un test
+metadata:
+  name: k6-sample
+spec:
+  parallelism: 4 # se ejecuta de forma concurrente desde cuatro pods
+  script:
+    configMap:
+      name: k6-test
+      file: test.js # se ejecuta este script (el contenido del script esta definido en el propio config map)
+  separate: false # Si falso cada runner opera de forma independiente a los demas (por ejemplo si en la configiuraciín tuvieramos usar 10 VU, y tenemos false, se crerían un total de 40 VU, 10 en cada worker; Si ponemos true se coordinan los cuatro workers, y en total habrá 10 VU; Resultado de la prueba en el caso de false habrá cuatro, en el caso de true uno)
+
+  runner: # obligatorio. Es necesario usar una imagen que conenga K6, y las options que deban usarse para definir la prueba. Opcionalmente podemos usar también la imagen para incluir el script en lugar de usar un ConfigMap
+    image: <custom-image> # imagen en la que reside el script
+    metadata:
+      labels:
+        cool-label: foo
+      annotations:
+        cool-annotation: bar
+    securityContext: # restricciones de seguridad para ejecutar esta imagen (usuario, grupo y no como no root)
+      runAsUser: 1000
+      runAsGroup: 1000
+      runAsNonRoot: true
+    resources: # recursos que podrá consumir esta imagen
+      limits:
+        cpu: 200m
+        memory: 1000Mi
+      requests:
+        cpu: 100m
+        memory: 500Mi
+  starter: # opcional. Esta imagen de indicarla se ejecuta al principio para prepara el test (preparación de datos, etc.)
+    image: <custom-image>
+    metadata:
+      labels:
+        cool-label: foo
+      annotations:
+        cool-annotation: bar
+    securityContext:
+      runAsUser: 2000
+      runAsGroup: 2000
+      runAsNonRoot: true
+```
+
+por defecto K6 monitoriza los recursos custom `TestRun` y `PrivateLoadZone` en todos los namespaces, pero podemos acotar a que namespaces vigilar con una variable de entorno **en el operador asociado a k6**:
+
+`WATCH_NAMESPACE`: un solo namespace.
+`WATCH_NAMESPACES`: una lista de namespaces separadospor coma.
+
+hay que especificar una de las dos variables:
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: k6-operator-controller-manager
+  namespace: k6-operator-system
+spec:
+  template:
+    spec:
+      containers:
+        - name: manager
+          image: ghcr.io/grafana/k6-operator:controller-v0.0.22
+          env:
+            - name: WATCH_NAMESPACE
+              value: "some-ns"
+            # Only use one option, WATCH_NAMESPACE or WATCH_NAMESPACES
+            # - name: WATCH_NAMESPACES
+            #   value: "some-ns,some-other-namespace"
+# ...
+```
+
+Para indicar el script que se tiene que ejecutar en la prueba con  `TestRun` se pueden utilizar varios mecanismos:
+
+- `configMap`. Se crea un config map indicando el script a utilizar (el ConfigMap tendrá como contenido el propio script):
+
+```ps
+kubectl create configmap my-test --from-file /path/to/my/test.js
+```
+
+y ya podemos usar el script en el test:
+
+```yaml
+---
+apiVersion: k6.io/v1alpha1
+kind: TestRun
+metadata:
+  name: k6-sample
+spec:
+  parallelism: 4
+  script:
+    configMap:
+      name: 'k6-test'
+      file: 'script.js'
+```
+
+El tamaño del script que podemos injectar con un ConfigMap no puede superar los 1048576 bytes. Si necesitamos más espacio se puede utilizar un volumeClaim o un localFile.
+
+- `volumeClaim`
+
+```yaml
+spec:
+  script:
+    volumeClaim:
+      name: 'stress-test-volumeClaim'
+      # test.js should exist inside /test/ folder.
+      # All the js files and directories test.js is importing
+      # should be inside the same directory as well.
+      file: 'test.js'
+```
+
+- `localFile`. Si tenemos una imagen con el script podemos lanzar el script desde la imagen:
+
+```yaml
+spec:
+  parallelism: 4
+  script:
+    localFile: /test/test.js
+  runner:
+    image: <custom-image>
+```
+
+#### Resultados
+
+```ps
+k6 run .\script.js
+
+         /\      Grafana   /‾‾/
+    /\  /  \     |\  __   /  /
+   /  \/    \    | |/ /  /   ‾‾\
+  /          \   |   (  |  (‾)  |
+ / __________ \  |_|\_\  \_____/
+
+     execution: local
+        script: .\script.js
+        output: -
+
+     scenarios: (100.00%) 1 scenario, 20 max VUs, 2m50s max duration (incl. graceful stop):
+              * default: Up to 20 looping VUs for 2m20s over 3 stages (gracefulRampDown: 30s, gracefulStop: 30s)
+
+
+
+  █ TOTAL RESULTS
+
+    checks_total.......: 1536    10.892462/s
+    checks_succeeded...: 100.00% 1536 out of 1536
+    checks_failed......: 0.00%   0 out of 1536
+
+    ✓ status is 200
+
+    HTTP
+    http_req_duration..............: avg=178.97ms min=116.14ms med=188.18ms max=307.84ms p(90)=228.46ms p(95)=233.35ms
+      { expected_response:true }...: avg=178.97ms min=116.14ms med=188.18ms max=307.84ms p(90)=228.46ms p(95)=233.35ms
+    http_req_failed................: 0.00%  0 out of 1536
+    http_reqs......................: 1536   10.892462/s
+
+    EXECUTION
+    iteration_duration.............: avg=1.18s    min=1.11s    med=1.19s    max=1.66s    p(90)=1.23s    p(95)=1.23s
+    iterations.....................: 1536   10.892462/s
+    vus............................: 1      min=1         max=20
+    vus_max........................: 20     min=20        max=20
+
+    NETWORK
+    data_received..................: 5.1 MB 36 kB/s
+    data_sent......................: 117 kB 830 B/s
+
+
+
+
+running (2m21.0s), 00/20 VUs, 1536 complete and 0 interrupted iterations
+default ✓ [======================================] 00/20 VUs  2m20s
+```
+
+- `http_req_duration`: mide el tiepo end-to-end de todas las peticiones. Se muestra el máximo, mínimo, la medida, medianda y los percentiles 90% y 95%
+- `http_req_failed: núm de casos que han fallado
+- `iterations`: número total de iteraciones
+- `vus`: número de clientes virtuales (máximo y mínimo)
+
+podemos configurar las métricas a calcular con el argumento `--summary-trend-stats`. Por ejemplo para calcular la mediana, y los percentiles 95% y 99.9%:
+
+```ps
+k6 run --iterations=100 --vus=10 --summary-trend-stats="med,p(95),p(99.9)" script.js
+```
+
+En la documentación podemos [ver más información acerca de las métricas](https://grafana.com/docs/k6/latest/using-k6/metrics/).
+
+#### Checks y Assertions
+
+Podemos usar diferentes [checks](https://grafana.com/docs/k6/latest/using-k6/checks/) y [assertions](https://grafana.com/docs/k6/latest/using-k6/assertions/) para comprobar que el test se está ejecutando dentro de los parámetros previstos.
+
+#### Thresholds
+
+Los [thresholds](https://grafana.com/docs/k6/latest/using-k6/thresholds/) definen los resultados esperados según los _NFRs_ definidos.
+
+Entre las options del test indicamos los _thresholds_:
+
+```js
+import http from 'k6/http';
+
+export const options = {
+  thresholds: {
+    http_req_failed: ['rate<0.01'], // http errors deben ser menores al 1% del total
+    http_req_duration: ['p(95)<200'], // el percentil 95% debe estar por debajo de los 200ms
+  },
+};
+
+export default function () {
+  http.get('https://quickpizza.grafana.com');
+}
+```
