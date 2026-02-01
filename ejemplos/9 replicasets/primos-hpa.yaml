@@ -16,3 +16,14 @@ spec:
       target:
         type: Utilization
         averageUtilization: 50 # no puede superar el 50% de uso de cpu
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 10  # Ventana de estabilización (5 minutos)
+      policies:
+      - type: Percent
+        value: 50  # Reduce hasta un 50% de las réplicas actuales por minuto
+        periodSeconds: 60
+      - type: Pods
+        value: 1  # O reduce 1 réplica por minuto, lo que sea mayor
+        periodSeconds: 60
+      selectPolicy: Max  # Usa la política que reduzca más

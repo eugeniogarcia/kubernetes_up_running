@@ -1396,3 +1396,139 @@ export default function () {
   http.get('https://quickpizza.grafana.com');
 }
 ```
+
+#### Ejemplo
+
+Vamos a crear un test `test-primos.js` en el que cada usuario virtual hace una llamda a `http.get('http://gz.com/load/1/10');` con una pausa de 0.5 segundos entre llamadas. El experimento dura seis minutos, con un perfil de usuarios virtuales que sube hasta un pico de ocho usuarios:
+
+```js
+// configuramos una rampa de usuarios virtuales
+export const options = {
+  stages: [
+    { duration: '1m30s', target: 8 }, // ramp-up a 8 usuarios en 2 minutos 
+    { duration: '30s', target: 8 }, 
+    { duration: '2m', target: 2 }, 
+    { duration: '1m', target: 2 }, 
+    { duration: '40s', target: 1 }, 
+    { duration: '20s', target: 0 }, 
+  ],
+};
+
+export default function() {
+  let res = http.get('http://gz.com/load/1/10'); // 1M interaciones CPU, 10M memoria
+  check(res, { "status is 200": (res) => res.status === 200 });
+  sleep(0.5);
+}
+
+// customiza el informe generado por k6
+export function handleSummary(data) {
+  return {
+    'resultados/k6/reports/replicasets_report.html': htmlReport(data), // crea el informe indicado en la key a partir del resultado (que se pasa en data)
+    'resultados/k6/reports/replicasets_report.json': JSON.stringify(data),
+  };
+}
+```
+
+Hemos introducido una pequeña modificación al recurso `hpa` para que el experimento sea más _visual_, hemos introducido el **tag opcional `behavior`**, para definir como se hará el rampdown, y especificamente cambiar el comportamiento por defecto. Por defecto el rampdown es más conservador, de modo que antes de reducir el número de pods se espera cinco minutos (el comportamiento por defecto de hpa añade con más facilidad pods que los reduce; Para reducir se espera cinco minutos para asegurar que la metrica se mantenga por debajo del umbral de forma estable): 
+
+```yaml
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: primos-hpa
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment # Vamos a escalar un deployment (podria haber sido una replicaset)
+    name: primos-deployment
+  minReplicas: 1 # número mínimo de réplicas
+  maxReplicas: 10 # número máximo de réplicas
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu #vigilamos la cpu
+      target:
+        type: Utilization
+        averageUtilization: 50 # no puede superar el 50% de uso de cpu
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 10  # Ventana de estabilización (5 minutos)
+      policies:
+      - type: Percent
+        value: 50  # Reduce hasta un 50% de las réplicas actuales por minuto
+        periodSeconds: 60
+      - type: Pods
+        value: 1  # O reduce 1 réplica por minuto, lo que sea mayor
+        periodSeconds: 60
+      selectPolicy: Max  # Usa la política que reduzca más
+```
+
+definimos dos politicas de `scaleDown`, usamos la que sea más agresiva (reduzca más pods). Lo primero reducimos la `stabilizationWindowSeconds` de los 300 segundos por defecto a 10 (para que en los seis minutos que dura el experimiento veamos que el hpa también baja el número de pods). Hemos expresado la tasa de reducción de dos formas, eb valor absoluto y en porcentaje.
+
+para lanzar el test hacemos:
+
+```ps
+k6 run .\test-primos.js
+
+
+         /\      Grafana   /‾‾/
+    /\  /  \     |\  __   /  /
+   /  \/    \    | |/ /  /   ‾‾\
+  /          \   |   (  |  (‾)  |
+ / __________ \  |_|\_\  \_____/
+
+     execution: local
+        script: .\test-primos.js
+        output: -
+
+     scenarios: (100.00%) 1 scenario, 8 max VUs, 6m30s max duration (incl. graceful stop):
+              * default: Up to 8 looping VUs for 6m0s over 6 stages (gracefulRampDown: 30s, gracefulStop: 30s)
+
+INFO[0360] [k6-reporter v3.0.3] Generating HTML summary report, with theme: default  source=console
+
+running (6m00.2s), 0/8 VUs, 2485 complete and 0 interrupted iterations
+default ✓ [======================================] 0/8 VUs  6m0s
+```
+
+usamos `--watch` para ir viendo como el hpa evoluciona:
+
+```ps
+kubectl get hpa primos-hpa --watch
+
+NAME         REFERENCE                      TARGETS         MINPODS   MAXPODS   REPLICAS   AGE
+primos-hpa   Deployment/primos-deployment   cpu: 3%/50%     1         10        1          26h
+primos-hpa   Deployment/primos-deployment   cpu: 1%/50%     1         10        1          26h
+primos-hpa   Deployment/primos-deployment   cpu: 63%/50%    1         10        1          26h
+primos-hpa   Deployment/primos-deployment   cpu: 245%/50%   1         10        2          26h
+primos-hpa   Deployment/primos-deployment   cpu: 379%/50%   1         10        5          26h
+primos-hpa   Deployment/primos-deployment   cpu: 131%/50%   1         10        8          26h
+primos-hpa   Deployment/primos-deployment   cpu: 101%/50%   1         10        8          26h
+primos-hpa   Deployment/primos-deployment   cpu: 94%/50%    1         10        10         26h
+primos-hpa   Deployment/primos-deployment   cpu: 116%/50%   1         10        10         26h
+primos-hpa   Deployment/primos-deployment   cpu: 92%/50%    1         10        10         26h
+primos-hpa   Deployment/primos-deployment   cpu: 91%/50%    1         10        10         26h
+primos-hpa   Deployment/primos-deployment   cpu: 80%/50%    1         10        10         26h
+primos-hpa   Deployment/primos-deployment   cpu: 67%/50%    1         10        10         26h
+primos-hpa   Deployment/primos-deployment   cpu: 64%/50%    1         10        10         26h
+primos-hpa   Deployment/primos-deployment   cpu: 54%/50%    1         10        10         26h
+primos-hpa   Deployment/primos-deployment   cpu: 49%/50%    1         10        10         26h
+primos-hpa   Deployment/primos-deployment   cpu: 46%/50%    1         10        10         26h
+primos-hpa   Deployment/primos-deployment   cpu: 38%/50%    1         10        10         26h
+primos-hpa   Deployment/primos-deployment   cpu: 28%/50%    1         10        8          26h
+primos-hpa   Deployment/primos-deployment   cpu: 51%/50%    1         10        5          26h
+primos-hpa   Deployment/primos-deployment   cpu: 50%/50%    1         10        5          26h
+primos-hpa   Deployment/primos-deployment   cpu: 45%/50%    1         10        5          26h
+primos-hpa   Deployment/primos-deployment   cpu: 46%/50%    1         10        5          26h
+primos-hpa   Deployment/primos-deployment   cpu: 32%/50%    1         10        5          26h
+primos-hpa   Deployment/primos-deployment   cpu: 28%/50%    1         10        4          26h
+primos-hpa   Deployment/primos-deployment   cpu: 1%/50%     1         10        3          26h
+primos-hpa   Deployment/primos-deployment   cpu: 1%/50%     1         10        2          26h
+primos-hpa   Deployment/primos-deployment   cpu: 1%/50%     1         10        2          26h
+primos-hpa   Deployment/primos-deployment   cpu: 4%/50%     1         10        1          26h
+primos-hpa   Deployment/primos-deployment   cpu: 1%/50%     1         10        1          26h
+```
+
+notese la métrica de CPU y el como evoluciona el número de réplicas a lo largo del tiempo.
+
+
+##
