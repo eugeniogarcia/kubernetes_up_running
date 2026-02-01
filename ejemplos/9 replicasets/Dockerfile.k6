@@ -1,0 +1,5 @@
+FROM grafana/k6:latest 
+
+COPY test-primos.js /test.js
+
+CMD ["k6", "run", "/test.js"]

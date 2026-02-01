@@ -1,0 +1,14 @@
+apiVersion: k6.io/v1alpha1
+kind: TestRun
+metadata:
+  name: test-primos-run
+spec:
+  parallelism: 2
+  script:
+    localFile: /test.js
+  runner:
+    image: docker.io/egsmartin/test-primos:latest
+    env:
+    - name: HOSTNAME_API
+      value: primos-service
+  separate: false

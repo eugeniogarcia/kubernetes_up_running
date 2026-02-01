@@ -15,8 +15,10 @@ export const options = {
   ],
 };
 
+const hostname = __ENV.HOSTNAME_API || 'gz.com';
+
 export default function() {
-  let res = http.get('http://gz.com/load/1/10'); // 1M interaciones CPU, 10M memoria
+  let res = http.get(`http://${hostname}/load/1/10`); // 1M interaciones CPU, 10M memoria
   check(res, { "status is 200": (res) => res.status === 200 });
   sleep(0.5);
 }

@@ -1530,5 +1530,21 @@ primos-hpa   Deployment/primos-deployment   cpu: 1%/50%     1         10        
 
 notese la métrica de CPU y el como evoluciona el número de réplicas a lo largo del tiempo.
 
+#### Ejemplo II. Ejecución en cluster
+
+Podemos ejecutar el mismo test pero usando pods dentro del propio cluster que hacen de _runners_. Esto nos ofrece la posibilidad de lanzar la prueba de forma distribuida desde varios Pods. Lo primero que necesitamos es crear la imagen con el runner. Esta imagen es obligatoria para incluir las _options_ donde se define la prueba, y opcionalmente podemos también incluir el propio script (en lugar de definirlo en un _ConfigMap_):
+
+La imagen tiene que incluir k6, así que usamos como base una imagen que grafana nos proporciona `grafana/k6:latest `. Construimos la imagen:
+
+```ps
+docker build -f Dockerfile.k6 -t egsmartin/test-primos:latest .
+```
+
+y lanzamos el test:
+
+```ps
+kubectl apply -f .\test-primos-testrun.yaml
+```
+
 
 ##
