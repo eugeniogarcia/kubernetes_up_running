@@ -49,8 +49,9 @@ function consumirCPU(iteraciones) {
 
 // Función para simular consumo de memoria
 function consumirMemoria(mb) {
+  // bytes
   const bytes = mb * 1024 * 1024;
-  const array = new Array(bytes / 4); // Array de floats (4 bytes cada uno)
+  const array = new Array(bytes / 8); // Array de floats (Math.random() devuelve un float; Cada float son 8 bytes)
   for (let i = 0; i < array.length; i++) {
     array[i] = Math.random();
   }
@@ -96,9 +97,9 @@ app.get('/load/:cpu/:mem', (req, res) => {
   const memResult = consumirMemoria(mem);
   
   res.json({ 
-    cpu_iterations: cpu,
+    cpu_iterations: req.params.cpu,
     cpu_result: cpuResult,
-    mem_mb: mem,
+    mem_mb: req.params.mem,
     mem_elements: memResult,
     operation: `consumir ${cpu/1000000}M iteraciones CPU y ${mem} MB memoria`,
     host: HOSTNAME
