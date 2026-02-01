@@ -80,7 +80,7 @@ app.get('/load/:cpu/:mem', (req, res) => {
     cpu_result: cpuResult,
     mem_mb: mem,
     mem_elements: memResult,
-    operation: `consumir ${cpu} iteraciones CPU y ${mem} MB memoria`,
+    operation: `consumir ${cpu/1000000}M iteraciones CPU y ${mem} MB memoria`,
     host: HOSTNAME
   });
 });
