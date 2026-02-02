@@ -11,4 +11,6 @@ spec:
     env:
     - name: HOSTNAME_API
       value: primos-service
+    - name: REPORTS_PATH
+      value: /reports
   separate: false

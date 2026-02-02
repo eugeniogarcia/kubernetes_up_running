@@ -27,7 +27,7 @@ export default function() {
 // customiza el informe generado por k6
 export function handleSummary(data) {
   return {
-    `${reportsPath}/replicasets_report.html`: htmlReport(data), // crea el informe indicado en la key a partir del resultado (que se pasa en data)
-    `${reportsPath}/replicasets_report.json`: JSON.stringify(data),
+    [ `${reportsPath}/replicasets_report.html` ]: htmlReport(data), // crea el informe indicado en la key a partir del resultado (que se pasa en data)
+    [ `${reportsPath}/replicasets_report.json` ]: JSON.stringify(data),
   };
 }

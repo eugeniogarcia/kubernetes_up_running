@@ -1546,6 +1546,11 @@ y lanzamos el test:
 kubectl apply -f .\test-primos-testrun.yaml
 ```
 
+podemos ver el estado del test
+
+kubectl get testrun test-primos-run -w
+
+
 ## Deployments
 
 El objeto Deployment permite la gestión del ciclo de vida de software. Tiene ciertas similitudes con el replicaset en el sentido de que define una spec en la que se indican los pods a crear, y el número de replicas de cada uno. Bajo bambalinas el Deployment crea un replicaset. La relación entre estos objetos se establece con las etiquetas.
