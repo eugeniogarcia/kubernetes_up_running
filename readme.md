@@ -1548,8 +1548,15 @@ kubectl apply -f .\test-primos-testrun.yaml
 
 podemos ver el estado del test
 
-kubectl get testrun test-primos-run -w
+```ps
+kubectl describe testrun test-primos-run
+```
 
+hacer `--watch`:
+
+```ps
+kubectl get testrun test-primos-run -w
+```
 
 ## Deployments
 

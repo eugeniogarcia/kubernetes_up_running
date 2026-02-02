@@ -40,7 +40,7 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: primos
+  name: primos-service
 spec:
   selector:
     app: primos
@@ -92,6 +92,6 @@ spec:
             pathType: Prefix
             backend:
               service:
-                name: primos
+                name: primos-service
                 port:
                   number: 80 # puerto donde se expone el servicio
