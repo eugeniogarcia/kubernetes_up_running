@@ -1545,3 +1545,25 @@ y lanzamos el test:
 ```ps
 kubectl apply -f .\test-primos-testrun.yaml
 ```
+
+## Deployments
+
+El objeto Deployment permite la gestión del ciclo de vida de software. Tiene ciertas similitudes con el replicaset en el sentido de que define una spec en la que se indican los pods a crear, y el número de replicas de cada uno. Bajo bambalinas el Deployment crea un replicaset. La relación entre estos objetos se establece con las etiquetas.
+
+```ps
+kubectl get deployments kuard -o jsonpath --template {.spec.selector.matchLabels}
+```
+
+y el replicaset que se ha creado:
+
+```ps
+kubectl get replicasets --selector=run=kuard
+```
+
+podemos escalar de forma inperativa:
+
+```ps
+kubectl scale deployments kuard --replicas=2
+```
+
+cuando hacemos esto el replicaset subyacente se actualiza al número de replicas que hemos indicado. Si estuvieramos tentados a escalar directamente el replicaset no lo lograríamos porque el _loop de control_ del Deployment detectaría el mismatch en el número de replicas definido y volvería a actualizar el replicaset para que este alineado con el Deployment.
