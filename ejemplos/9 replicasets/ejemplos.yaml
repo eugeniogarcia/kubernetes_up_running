@@ -47,7 +47,6 @@ spec:
   ports:
   - port: 80 # puerto del servicio
     targetPort: 8080 # puerto del contenedor
-  #type: LoadBalancer # declaramos el servicio como LoadBalancer, esto creara una external ip
 ---
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
