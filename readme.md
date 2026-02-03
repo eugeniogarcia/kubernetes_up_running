@@ -1726,3 +1726,50 @@ kubectl scale deployments kuard --replicas=2
 ```
 
 cuando hacemos esto el replicaset subyacente se actualiza al número de replicas que hemos indicado. Si estuvieramos tentados a escalar directamente el replicaset no lo lograríamos porque el _loop de control_ del Deployment detectaría el mismatch en el número de replicas definido y volvería a actualizar el replicaset para que este alineado con el Deployment.
+
+La especificación es similar a la del replica set, pero se incluye la propiedad `strategy` que define como se realizarán las actualizaciones de versiones.
+
+Cuando actualizamos un deployment, por ejemplo con `kubectl apply -f kuard-deployment.yaml` se lanza automáticamente un rollout. Podemos vigilar el rollout:
+
+```ps
+kubectl rollout status deployments kuard
+
+kubectl rollout pause deployments kuard
+
+kubectl rollout resume deployments kuard
+```
+
+otra funcionalidad asociada al deployment es el historial de despliegues.
+
+```ps
+kubectl rollout history deployment kuard
+```
+
+podemos consultar los detalles de una de las versiones:
+
+```ps
+kubectl rollout history deployment kuard --revision=2
+```
+
+hacer un rollback a la versión previa:
+
+```ps
+kubectl rollout undo deployments kuard
+```
+
+cuando se hace un `undo` lo que sucede es que se crea una nueva versión que es igual a la previa, pero si mirasemos el historial de versiones lo que veremos no es una versión _menos_ sino una versión _más_.
+
+Podemos revertir el despliegue a una versión concreta, por ejemplo a la tres:
+
+```ps
+kubectl rollout undo deployments kuard --to-revision=3
+```
+
+sucederá como en el caso del undo, se creará una versión nueva en el historial que será igual a la versión a la que estamos haciendo el rollback.
+
+Podemos limitar el número de versiones a trazar añadiendo en la spec de la Deployment la propiedad `revisionHistoryLimit: 14` (por ejemplo para limitar a 14 versiones).
+
+### Estrategias
+
+- `Recreate`. Sustituye unos pods por otros. Durante este proceso habrá perdida de disponibilidad, aunque es el que tiene el ciclo de despliegue más rápido
+- `RollingUpdate`. Va creando las nuevas versiones progresivamente mientras mantiene corriendo las versiones antiguas. Se persigue evitar la falta de disponibilidad, pero durante el período transitorio tenemos dos versiones diferentes del servicio corriendo. Controlamos esta estrategia con las propiedades `maxUnavailable` y `maxSurge`. El `maxUnavailable` es el número de replicas - de la versión vieja - que se destruyen nada más empezar - y por lo tanto que el controlador empezará a sustituir por versiones nuevas. Nunca habrá un número inferior de replicas disponibles. Con `maxSurge` indicamos cuantas replicas por encima de las definidas para el despliegue - en regimen estable - admitimos. Por ejemplo, con `maxUnavailable a 0, y maxSurge a 20%` empezaríamos manteniendo todas las replicas y creando un 20% de replicas nuevas, que una vez creadas irían desplazando réplicas viejas.
