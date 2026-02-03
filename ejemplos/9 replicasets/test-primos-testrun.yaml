@@ -3,14 +3,21 @@ kind: TestRun
 metadata:
   name: test-primos-run
 spec:
-  parallelism: 2
+  parallelism: 2 # se ejecutaran dos runners en paralelo
   script:
-    localFile: /test.js
+    localFile: /test.js # no usamos un configmap para definir el script sino que lo incluimos en la imagen del runner
   runner:
-    image: docker.io/egsmartin/test-primos:latest
+    image: docker.io/egsmartin/test-primos:latest # imagen del runner que contiene el script de test
     env:
     - name: HOSTNAME_API
       value: primos-service
     - name: REPORTS_PATH
       value: /reports
-  separate: false
+    volumeMounts: # montamos un volumen en el que dejar el resultado de los tests
+    - name: k6-reports # nombre del volumen que montamos
+      mountPath: /reports
+    volumes: # volumen
+    - name: k6-reports 
+      persistentVolumeClaim: # queremos que el volumen sea persistente, así que usamos un PVC
+        claimName: k6-reports-pvc
+  separate: false # los dos runners se ejecutan de forma coordinada. Los VUs a crear se reparten entre los dos pods

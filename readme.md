@@ -1399,6 +1399,8 @@ export default function () {
 
 #### Ejemplo
 
+Voy a definir dos ejemplos que van a demostrar el funcionamiento del hpa. En este primero lanzamos una prueba de rendimiento usando la instalación k6 local de mi equipo, en el siguiente lanzaremos la misma prueba de rendimiento pero de forma distribuida desde el propio cluster. Todos los recursos que necesitaré para estos ejemplos están en `ejemplos.yaml`, así que empezamos haciendo `kubectl apply -f ./ejemplos.yaml`. El recurso que usaré para lanzar el test distribuido lo incluyo en otro yaml de modo que puedo decidir cuando lanzar la prueba distribuida.
+
 Vamos a crear un test `test-primos.js` en el que cada usuario virtual hace una llamda a `http.get('http://gz.com/load/1/10');` con una pausa de 0.5 segundos entre llamadas. El experimento dura seis minutos, con un perfil de usuarios virtuales que sube hasta un pico de ocho usuarios:
 
 ```js
@@ -1540,13 +1542,128 @@ La imagen tiene que incluir k6, así que usamos como base una imagen que grafana
 docker build -f Dockerfile.k6 -t egsmartin/test-primos:latest .
 ```
 
+una vez construida la imagen con el runner ya podemos lanzar nuestro test con nuestro recurso `TestRun`:
+
+```yaml
+apiVersion: k6.io/v1alpha1
+kind: TestRun
+metadata:
+  name: test-primos-run
+spec:
+  parallelism: 2 # se ejecutaran dos runners en paralelo
+  script:
+    localFile: /test.js # no usamos un configmap para definir el script sino que lo incluimos en la imagen del runner
+  runner:
+    image: docker.io/egsmartin/test-primos:latest # imagen del runner que contiene el script de test
+    env:
+    - name: HOSTNAME_API
+      value: primos-service
+    - name: REPORTS_PATH
+      value: /reports
+    volumeMounts: # montamos un volumen en el que dejar el resultado de los tests
+    - name: k6-reports # nombre del volumen que montamos
+      mountPath: /reports
+    volumes: # volumen
+    - name: k6-reports 
+      persistentVolumeClaim: # queremos que el volumen sea persistente, así que usamos un PVC
+        claimName: k6-reports-pvc
+  separate: false # los dos runners se ejecutan de forma coordinada. Los VUs a crear se reparten entre los dos pods
+```
+
+comentar algunas cosas:
+- lanzamos dos runners en paralelo
+- la imagen del runner es la que hemos creado en el paso anterior
+- usamos el runner **también** para incluir el escript de prueba (esto porque hemos usado el atributo `localFile`)
+- creamos un volumen donde guardar el informe de la prueba, y usamos un persistent volume claim para ello. Asi incluso si borramos el pod del runner podremos acceder a los datos
+
+la definición del PV y del PVC:
+
+```yaml
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: k6-reports-pv
+spec:
+  capacity:
+    storage: 20Mi # tamaño del volumen
+  accessModes:
+    - ReadWriteOnce # modo de acceso. Solo puede ser montado en modo lectura/escritura por un nodo
+  hostPath:
+    path: /data/k6-reports # ruta en el nodo donde se almacena el volumen
+    type: DirectoryOrCreate
+  persistentVolumeReclaimPolicy: Retain # política de retención del volumen. Retain: conservar el volumen aunque se borre el PVC. Otras opciones: Recycle, Delete
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: k6-reports-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce # modo de acceso. Debe coincidir con el del PV que kubernetes asigne
+  resources:
+    requests:
+      storage: 20Mi # tamaño solicitado al PV
+```
+
 y lanzamos el test:
 
 ```ps
 kubectl apply -f .\test-primos-testrun.yaml
 ```
 
+podemos ver las fases por las que pasa el test de k6:
+
+```ps
+kubectl get testrun -w
+
+NAME              STAGE     AGE    TESTRUNID
+test-primos-run   initialization   0s
+test-primos-run   initialization   10s
+test-primos-run   initialized      10s
+test-primos-run   created          10s
+test-primos-run   started          15s
+test-primos-run   stopped          6m21s
+test-primos-run   finished         6m21s
+```
+
+cuando se lanza el test se crean varios Pods:
+
+```ps
+kubectl get pods
+
+NAME                                READY   STATUS      RESTARTS   AGE
+test-primos-run-1-lkm6r             0/1     Completed   0          25m
+test-primos-run-2-bs9cp             0/1     Completed   0          25m
+test-primos-run-initializer-85445   0/1     Completed   0          26m
+test-primos-run-starter-s2fcg       0/1     Completed   0          25m
+```
+
+el initializer y el starter se crean al principio para preparar y lanzar la prueba, y a continuación se crean los runners. En este caso tenemos dos porque hemos definido `parallelism: 2`. Cuando he capturado los datos anteriores el test ya habia terminado de ahi que figuren los pods como `Completed`.
+
+Para ver el resultado del test vamos a usar una imagen de **busybox** que se caracteriza por ser muy ligera y proporcionarnos un bash. Usaremos esta imagen para montar el mismo volumen en el que hemos dejado los resultados
 podemos ver el estado del test
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pvc-debug
+spec:
+  containers:
+  - name: sh
+    image: docker.io/library/busybox:stable
+    imagePullPolicy: IfNotPresent
+    command: ["sh","-c","sleep 3600"]
+    volumeMounts: # montamos el volumen en el path /mnt/reports
+    - name: reports # nombre del volumen que montamos
+      mountPath: /mnt/reports
+  volumes:
+  - name: reports # datos del volumen
+    persistentVolumeClaim:
+      claimName: k6-reports-pvc # usamos el mismo pvc que uso el runner de k6 para guardar los reportes
+  restartPolicy: Never
+```
+
 
 ```ps
 kubectl describe testrun test-primos-run
@@ -1557,6 +1674,36 @@ hacer `--watch`:
 ```ps
 kubectl get testrun test-primos-run -w
 ```
+
+Para ver los resultados de la prueba nos conectamos al pod `pvc-debug` que hemos creado antes para montar el mismo pvc que hemos usado en la prueba:
+
+```ps
+kubectl exec -it pvc-debug -- sh 
+```
+
+```bash
+ls -la /mnt/reports
+
+total 36
+drwxrwxrwx    2 root     root          4096 Feb  3 06:01 .
+drwxr-xr-x    3 root     root          4096 Feb  3 06:07 ..
+-rw-r--r--    1 12345    12345        23621 Feb  3 06:01 replicasets_report.html
+-rw-r--r--    1 12345    12345         2825 Feb  3 06:01 replicasets_report.json
+```
+
+podemos copiar los resultados:
+
+```ps
+kubectl cp default/pvc-debug:/mnt/reports ./local-reports
+```
+
+el resumen de la prueba:
+
+![resumen](./imagenes/resumen.png)
+
+podemos **observar como el máximo número de VUs creadas fue cuatro, en lugar de ocho**. Esto es debido a que configuramos el `TestRun` como `separate: false`:
+
+![prueba k6](./imagenes/vus.png)
 
 ## Deployments
 

@@ -1,3 +1,28 @@
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: k6-reports-pv
+spec:
+  capacity:
+    storage: 20Mi # tamaño del volumen
+  accessModes:
+    - ReadWriteOnce # modo de acceso. Solo puede ser montado en modo lectura/escritura por un nodo
+  hostPath:
+    path: /data/k6-reports # ruta en el nodo donde se almacena el volumen
+    type: DirectoryOrCreate
+  persistentVolumeReclaimPolicy: Retain # política de retención del volumen. Retain: conservar el volumen aunque se borre el PVC. Otras opciones: Recycle, Delete
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: k6-reports-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce # modo de acceso. Debe coincidir con el del PV que kubernetes asigne
+  resources:
+    requests:
+      storage: 20Mi # tamaño solicitado al PV
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -95,3 +120,22 @@ spec:
                 name: primos-service
                 port:
                   number: 80 # puerto donde se expone el servicio
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pvc-debug
+spec:
+  containers:
+  - name: sh
+    image: docker.io/library/busybox:stable
+    imagePullPolicy: IfNotPresent
+    command: ["sh","-c","sleep 3600"]
+    volumeMounts: # montamos el volumen en el path /mnt/reports
+    - name: reports # nombre del volumen que montamos
+      mountPath: /mnt/reports
+  volumes:
+  - name: reports # datos del volumen
+    persistentVolumeClaim:
+      claimName: k6-reports-pvc # usamos el mismo pvc que uso el runner de k6 para guardar los reportes
+  restartPolicy: Never
