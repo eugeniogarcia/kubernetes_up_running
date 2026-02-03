@@ -1773,3 +1773,7 @@ Podemos limitar el número de versiones a trazar añadiendo en la spec de la Dep
 
 - `Recreate`. Sustituye unos pods por otros. Durante este proceso habrá perdida de disponibilidad, aunque es el que tiene el ciclo de despliegue más rápido
 - `RollingUpdate`. Va creando las nuevas versiones progresivamente mientras mantiene corriendo las versiones antiguas. Se persigue evitar la falta de disponibilidad, pero durante el período transitorio tenemos dos versiones diferentes del servicio corriendo. Controlamos esta estrategia con las propiedades `maxUnavailable` y `maxSurge`. El `maxUnavailable` es el número de replicas - de la versión vieja - que se destruyen nada más empezar - y por lo tanto que el controlador empezará a sustituir por versiones nuevas. Nunca habrá un número inferior de replicas disponibles. Con `maxSurge` indicamos cuantas replicas por encima de las definidas para el despliegue - en regimen estable - admitimos. Por ejemplo, con `maxUnavailable a 0, y maxSurge a 20%` empezaríamos manteniendo todas las replicas y creando un 20% de replicas nuevas, que una vez creadas irían desplazando réplicas viejas.
+
+## DaemonSets
+
+Con los DaemonSets podemos podemos _schedulear_ un Pod en cada nodo (salvo que se utilice algún selector para excluir alguno de los nodos).
