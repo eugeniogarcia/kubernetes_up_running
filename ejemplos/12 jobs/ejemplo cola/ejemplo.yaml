@@ -1,0 +1,63 @@
+# pod para producir mensajes en una cola
+apiVersion: apps/v1
+kind: ReplicaSet
+metadata:
+  labels:
+    app: work-queue
+    component: queue
+    chapter: jobs
+  name: queue
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: work-queue
+      component: queue
+      chapter: jobs
+  template:
+    metadata:
+      labels:
+        app: work-queue
+        component: queue
+        chapter: jobs
+    spec:
+      containers:
+      - name: queue
+        image: "docker.io/egsmartin/kuard:latest"
+        imagePullPolicy: Always
+---
+# servicio para consumir el pod creado por el rs queue o cualquier otro pod que tenga las etiquetas app:work-queue y component:queue
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: work-queue
+    component: queue
+    chapter: jobs
+  name: queue # nombre del servicio. Se creará en el DNS interno de Kubernetes una entrada con este nombre: queue.default.svc.cluster.local; Un Pod que este ejecutando en el mismo cluster y en el mismo namespace podrá acceder al servicio como queue 
+spec: # especificación del servicio. Como no se indica el tipo se creará como ClusterIP (accesible solo desde dentro del cluster). Otras opciones son NodePort (se habilita un puerto en cada nodo del cluster que enruta las peticiones al servicio) o LoadBalancer (se crea una external-ip que enruta las peticiones al servicio)
+  ports:
+  - port: 8080 # puerto del servicio
+    protocol: TCP
+    targetPort: 8080 # puerto del pod al que se redirigen las peticiones al servicio
+  selector: # selector para identificar los pods que forman parte del servicio
+    app: work-queue
+    component: queue
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: cola
+spec:
+  ingressClassName: contour
+  rules:
+    - host: gz.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: queue
+                port:
+                  number: 8080 # puerto donde se expone el servicio
