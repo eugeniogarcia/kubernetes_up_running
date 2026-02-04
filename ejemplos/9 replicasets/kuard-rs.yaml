@@ -1,19 +1,19 @@
 apiVersion: apps/v1
-kind: ReplicaSet
+kind: ReplicaSet # un ReplicaSet
 metadata:
-  labels:
+  labels: # etiquetas que se asocian al ReplicaSet propiamente dicho. Son opcionales y no guardan relación ni tienen que coincidir con las del Pod
     app: kuard
     version: "2"
   name: kuard
 spec:
-  replicas: 1
+  replicas: 1 # número de réplicas del Pod que queremos ejecutar
   selector:
-    matchLabels:
+    matchLabels: # etiquetas que identifican los pods que son controlados por este ReplicaSet. Han de coincidir con las etiquetas que indiquemos en el template del pod
       app: kuard
       version: "2"
-  template:
+  template: # plantilla que define el pod que se crearan con este ReplicaSet
     metadata:
-      labels:
+      labels: # etiquetas que se asociaran al pod creado con esta plantilla. Han de coincidir con las del selector del ReplicaSet
         app: kuard
         version: "2"
     spec:

@@ -1,0 +1,40 @@
+apiVersion: apps/v1
+kind: DaemonSet # un DaemonSet asegura que una copia de un Pod se ejecute en cada nodo del clúster
+metadata:
+  name: fluentd # nombre del DaemonSet
+  labels: # etiquetas que asociaremos directamente al DaemonSet. Son opcionales y no guardan relación ni tienen que coincidir con las del Pod
+    app: fluentd 
+spec:
+  selector: # etiquetas que identifican los pods que son controlados por este DaemonSet. Han de coincidir con las etiquetas que indiquemos en el template del pod
+    matchLabels:
+      app: fluentd
+  template: # plantilla que define el pod que se ejecutará en los nodos
+    metadata:
+      labels: # etiquetas que se asociaran al pod creado con esta plantilla. Han de coincidir con las del selector del DaemonSet
+        app: fluentd
+    spec:
+      nodeSelector: # Opcional. Sino se especifica el DaemonSet se ejecutará en todos los nodos. Si se especifica, solo se ejecutará en los nodos que cumplan las condiciones indicadas, es decir, que tengan la etiqueta que indicamos aqui. La etiqueta tiene que estar fijada en el objeto Nodo.
+        ssd: "true"    
+      containers: # definición de los contenedores que se ejecutarán en el pod
+      - name: fluentd
+        image: fluent/fluentd:v0.14.10
+        resources:
+          limits:
+            memory: 200Mi
+          requests:
+            cpu: 100m
+            memory: 200Mi
+        volumeMounts: # volúmenes que se montarán en el contenedor
+        - name: varlog
+          mountPath: /var/log
+        - name: varlibdockercontainers
+          mountPath: /var/lib/docker/containers
+          readOnly: true
+      terminationGracePeriodSeconds: 30 # tiempo de gracia para la terminación del pod. Cuando se solicita que el pod termine se esperará este tiempo antes de forzar la terminación
+      volumes: # volúmenes que se montarán en el pod
+      - name: varlog
+        hostPath:
+          path: /var/log
+      - name: varlibdockercontainers
+        hostPath:
+          path: /var/lib/docker/containers

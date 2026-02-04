@@ -1,17 +1,17 @@
 apiVersion: apps/v1
-kind: Deployment
+kind: Deployment # un Deployment
 metadata:
-  name: kuard
-  labels:
+  name: kuard # nombre del Deployment
+  labels: # etiquetas que se asocian al Deployment propiamente dicho. Son opcionales y no guardan relación ni tienen que coincidir con las del Pod
     run: kuard
 spec:
-  selector:
+  selector: # etiquetas que identifican los pods que son controlados por este Deployment. Han de coincidir con las etiquetas que indiquemos en el template del pod
     matchLabels:
       run: kuard
-  replicas: 1
-  template:
+  replicas: 1 # número de réplicas del Pod que queremos ejecutar
+  template: # plantilla que define el pod que se crearan con este Deployment
     metadata:
-      labels:
+      labels: # etiquetas que se asociaran al pod creado con esta plantilla. Han de coincidir con las del selector del Deployment
         run: kuard
     spec:
       containers:
