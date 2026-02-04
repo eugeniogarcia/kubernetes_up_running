@@ -1777,3 +1777,80 @@ Podemos limitar el número de versiones a trazar añadiendo en la spec de la Dep
 ## DaemonSets
 
 Con los DaemonSets podemos podemos _schedulear_ un Pod en cada nodo (salvo que se utilice algún selector para excluir alguno de los nodos).
+
+## Jobs
+
+Los jobs sirven para ejecutar pods que realizan una tarea y terminan. Si el pod que ejecuta el job falla antes de tiempo, antes de que termine la tarea, el controlador programará otro job en su lugar. No debemos descartar la posibilidad de que durante una fracción de tiempo pueda etar ejecutandose el pod dos veces.
+
+Podemos clasificar los jobs de esta forma:
+
+|------|------|------|------|------|
+|Type|Use case|Behavior|completions|parallelism|
+|------|------|------|------|------|
+|One shot|Migraciones de base de datos|Un único Pod que se ejecuta una sola vez hasta finalizar correctamente|1|1|
+|Parallel fixed completions|Varios Pods trabajando simultaneamente para procesar una determinada tarea|Uno o varios Pods se ejecutan una o más veces hasta completar el trabajo|1+|1+|
+|Work queue: parallel jobs|Varios Pods procesando una cola de tareas|Uno o más Pods en ejecución hasta vaciar la cola|1|2+|
+
+Igual que sucede en docker, podemos arrancar un Pod con kubectl desde la consola e iterar con él:
+
+```ps
+ kubectl run -i oneshot \
+  --image=gcr.io/kuar-demo/kuard-amd64:blue \
+  --restart=OnFailure \
+  --command /kuard \
+  -- --keygen-enable \
+     --keygen-exit-on-complete \
+     --keygen-num-to-gen 10
+```
+
+### One Shot
+
+La definición de un job que se ejecuta una sola vez es muy sencilla, apenas indicamos el _template_ con la definición del pod, y el nombre del job. Internamente se creara un _matchselector_ y unas _labels_ para relacionar el Job con sus pods. Observar que en la plantilla del Pod hemos tenido que indicar explicitamente la `restartPolicy` porque el valor por defecto para Pods - `Always` - no es compatible con un Pod que se utilice en un Job:
+
+```yaml
+apiVersion: batch/v1
+kind: Job # Se trata de un Job de Kubernetes
+metadata:
+  name: oneshot # nombre del Job
+spec:
+  template: # Plantilla con la definición del Pod que va a crear el Job
+    spec:
+      containers:
+      - name: kuard
+        image: docker.io/egsmartin/kuard:latest
+        imagePullPolicy: Always
+        command:
+        - "/kuard"
+        args:
+        - "--keygen-enable"
+        - "--keygen-exit-on-complete"
+        - "--keygen-num-to-gen=10"
+      restartPolicy: OnFailure # Política de reinicio del Pod. En este caso, se reiniciará solo si falla. Otros valores posibles son 'Never' o 'Always'. Always sinifica que el Pod se reiniciará siempre que termine, independientemente de si ha terminado correctamente o con error. Never significa que el Pod no se reiniciará nunca, independientemente de cómo termine. Always no es válido para Jobs. El valor por defecto es Always, pero para Jobs es obligatorio especificar OnFailure o Never.
+```
+
+Podemos crear el job como siempre:
+
+```ps
+kubectl apply -f .\oneshot-ok.yaml
+```
+
+consultar los jobs:
+
+```ps
+kubectl get jobs
+
+kubectl describe jobs oneshot
+```
+
+para ver la salida del job tendremos que ver los logs de los pods que el job creara:
+
+```ps
+kubectl logs oneshot-5w6pj
+
+cuando borramos un job se borran también sus pods:
+
+```ps
+kubectl delete jobs oneshot
+```
+
+Cuando el pod asociado a un job falla

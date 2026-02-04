@@ -1,0 +1,18 @@
+apiVersion: batch/v1
+kind: Job # Se trata de un Job de Kubernetes
+metadata:
+  name: oneshot # nombre del Job
+spec:
+  template: # Plantilla con la definición del Pod que va a crear el Job
+    spec:
+      containers:
+      - name: kuard
+        image: docker.io/egsmartin/kuard:latest
+        imagePullPolicy: Always
+        command:
+        - "/kuard"
+        args:
+        - "--keygen-enable"
+        - "--keygen-exit-on-complete"
+        - "--keygen-num-to-gen=10"
+      restartPolicy: OnFailure # Política de reinicio del Pod. En este caso, se reiniciará solo si falla. Otros valores posibles son 'Never' o 'Always'. Always sinifica que el Pod se reiniciará siempre que termine, independientemente de si ha terminado correctamente o con error. Never significa que el Pod no se reiniciará nunca, independientemente de cómo termine. Always no es válido para Jobs. El valor por defecto es Always, pero para Jobs es obligatorio especificar OnFailure o Never.
