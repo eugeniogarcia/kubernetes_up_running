@@ -1853,4 +1853,52 @@ cuando borramos un job se borran también sus pods:
 kubectl delete jobs oneshot
 ```
 
-Cuando el pod asociado a un job falla
+Veamos que sucede cuando el pod asociado a un job falla
+
+```ps
+kubectl apply -f .\oneshot-fallo.yaml
+```
+
+podemos ver como el job esta incompleto, _running_, mientras que el Pod esta en error, y se ha reintentado ya un par de veces:
+
+```ps
+kubectl get jobs
+NAME      STATUS    COMPLETIONS   DURATION   AGE
+oneshot   Running   0/1           37s        37s
+
+kubectl get pods
+NAME            READY   STATUS   RESTARTS      AGE
+oneshot-cqm9t   0/1     Error    2 (34s ago)   42s
+```
+
+eventualmente se alcanzarán cuatro reintentos, y trás un cierto tiempo:
+
+```ps
+kubectl get pods -w
+NAME            READY   STATUS   RESTARTS      AGE
+oneshot-cqm9t   0/1     Error    4 (86s ago)   2m24s
+oneshot-cqm9t   0/1     CrashLoopBackOff   4 (66s ago)   2m47s
+oneshot-cqm9t   1/1     Running            5 (90s ago)   3m11s
+oneshot-cqm9t   0/1     Error              5 (92s ago)   3m13s
+```
+
+durante todo este proceso el Job sigue corriendo, desde su punto de vista el Pod no ha terminado. Si cambiamos la restart policy a `Never` lo que va a suceder es que cuando el Pod falle no se reintentará su creacion, y el controlador del Job tratará de crear **otro** Pod:
+
+```ps
+get pods -w
+
+NAME            READY   STATUS   RESTARTS   AGE
+oneshot-p8zwm   0/1     Error    0          10s
+oneshot-gfw9j   0/1     Pending   0          0s
+oneshot-gfw9j   0/1     Pending   0          0s
+oneshot-gfw9j   0/1     ContainerCreating   0          0s
+oneshot-gfw9j   1/1     Running             0          2s
+oneshot-gfw9j   0/1     Error               0          4s
+oneshot-gfw9j   0/1     Error               0          5s
+oneshot-gfw9j   0/1     Error               0          6s
+```
+
+podemos observar como efectivamente el número de reintentos en cada Pod es cero, y que **diferentes** pods son creados por el job
+
+
+### Ejecución en Paralelo
