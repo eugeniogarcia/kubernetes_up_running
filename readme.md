@@ -1788,8 +1788,8 @@ Podemos clasificar los jobs de esta forma:
 |Type|Use case|Behavior|completions|parallelism|
 |------|------|------|------|------|
 |One shot|Migraciones de base de datos|Un único Pod que se ejecuta una sola vez hasta finalizar correctamente|1|1|
-|Parallel fixed completions|Varios Pods trabajando simultaneamente para procesar una determinada tarea|Uno o varios Pods se ejecutan una o más veces hasta completar el trabajo|1+|1+|
-|Work queue: parallel jobs|Varios Pods procesando una cola de tareas|Uno o más Pods en ejecución hasta vaciar la cola|1|2+|
+|Número fijo/predeterminado de ejecuciones en paralelo|Varios Pods trabajando simultaneamente para procesar una determinada tarea|Uno o varios Pods se ejecutan una o más veces hasta completar el trabajo|1+|1+|
+|Procesamiento en paralelo de una cola|Varios Pods procesando una cola de tareas|Uno o más Pods en ejecución hasta vaciar la cola|1|2+|
 
 Igual que sucede en docker, podemos arrancar un Pod con kubectl desde la consola e iterar con él:
 
@@ -1900,5 +1900,53 @@ oneshot-gfw9j   0/1     Error               0          6s
 
 podemos observar como efectivamente el número de reintentos en cada Pod es cero, y que **diferentes** pods son creados por el job
 
-
 ### Ejecución en Paralelo
+
+En la especificación del job podemos controlar la ejecucion paralela del job:
+
+- **parallelism**: número máximo de Pods ejecutándose concurrentemente. Ej: parallelism: 5 permite hasta 5 Pods al mismo tiempo.
+- **completions**: número total de ejecuciones exitosas que el Job debe completar. Ej: completions: 10 fuerza 10 ejecuciones exitosas en total.
+- **completionMode**: "NonIndexed" (por defecto) o "Indexed". Con Indexed, cada ejecución recibe un índice (JOB_COMPLETION_INDEX) accesible dentro del Pod. Útil para dividir trabajo por índice.
+- **backoffLimit**: número de reintentos permitidos por Pod antes de marcar el Job como fallido (por defecto 6). Controla reintentos de Pods fallidos.
+- **activeDeadlineSeconds**: tiempo máximo (en segundos) que puede estar activo el Job en total; al llegar a ese tiempo Kubernetes cancela Pods restantes.
+- **restartPolicy** (en spec.template.spec): OnFailure o Never para Jobs; influye en cómo se reinician los contenedores dentro de cada Pod (OnFailure permite reintentos dentro del Pod).
+- **ttlSecondsAfterFinished**: (si está habilitado en el clúster) tiempo en segundos tras completar el Job para que se borre el objeto Job automáticamente.
+- **concurrencyPolicy** (solo CronJob): Allow, Forbid, Replace — controla si múltiples ejecuciones del CronJob pueden solaparse
+
+parallelism vs completions: si **completions > parallelism**, Kubernetes lanzará tandas de Pods (hasta parallelism) hasta alcanzar completions. Si **completions ≤ parallelism**, puede lanzar todos a la vez. 
+
+Podemos ver como se crean cinco Pods que están ejecutandose de forma simultanea:
+
+```ps
+kubectl apply -f .\job-parallel.yaml
+job.batch/parallel created
+
+kubectl get pods
+NAME             READY   STATUS              RESTARTS   AGE
+parallel-74lbl   0/1     ContainerCreating   0          6s
+parallel-9jmff   1/1     Running             0          6s
+parallel-dngjw   1/1     Running             0          6s
+parallel-wrmz5   1/1     Running             0          6s
+parallel-xsjtq   0/1     ContainerCreating   0          6s
+```
+
+hasta totalizar diez ejecuciones:
+
+```ps
+kubectl get pods
+
+NAME             READY   STATUS      RESTARTS   AGE
+parallel-2twdc   0/1     Completed   0          10s
+parallel-74lbl   0/1     Completed   0          30s
+parallel-7f8s8   0/1     Completed   0          21s
+parallel-9jmff   0/1     Completed   0          30s
+parallel-blsxv   1/1     Running     0          12s
+parallel-dngjw   0/1     Completed   0          30s
+parallel-wrmz5   0/1     Completed   0          30s
+parallel-x7jw6   0/1     Completed   0          16s
+parallel-xsjtq   0/1     Completed   0          30s
+parallel-zxrmp   0/1     Completed   0          16s
+```
+
+### Procesamiento de una Cola
+
