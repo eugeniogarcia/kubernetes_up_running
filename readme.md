@@ -1952,5 +1952,20 @@ parallel-zxrmp   0/1     Completed   0          16s
 
 En este caso vamos a lanzar el job con `parallelism: 5` lo que significa que se lanzaran cinco Pods en paralelo, y no vamos a indicar `completions`, lo que significa que una vez esos Pods terminen, al no haber una cuota de ejecuciones que cubrir, no serán sustituidos por otros Pods.
 
-Para lanzar el ejemplo creamos los recursos `kubectl apply -f .\ejemplo.yaml`. Con el script `load-queue.ps1` creamos mensajes en la cola. Lanzamos un job que crea cinco Pods que consumirán los mensajes de la cola e irán terminando a medida que no haya más mensajes que procesar.
+Para lanzar el ejemplo creamos los recursos `kubectl apply -f .\ejemplo.yaml`. Con el script `load-queue.ps1` creamos mensajes en la cola. Podemos abrir [`kuard`](http://gz.com/-/memq):
 
+![cola](./imagenes/cola.png)
+
+Podemos ver todos los mensajes que están encolados
+
+Lanzamos un job que crea cinco Pods que consumirán los mensajes de la cola e irán terminando a medida que no haya más mensajes que procesar. Iremos viendo como los mensajes son consumidos: 
+
+![consumo](./imagenes/consumo.png)
+
+### Cron Jobs
+
+Siguiendo el ejemplo que hemos visto en el caso antetior, podemos definir un job que se ejecute períodicamente con una expresión cron.
+
+```ps
+kubectl apply -f ./job-cron.yaml
+```
