@@ -90,7 +90,7 @@ go install
 
 compila el programa y lo _instala_ en carpeta donde se guardan los ejecutables de go (`go build` tambien hace la compilación, pero el ejecutable se guarda en el propio directorio desde el que se ejecuta el _build_). La carpeta en la que se guarda el binario se determina con la variable de entorno `GOBIN`. Si esta variable no existiera, entonces el ejecutable se guarda en `$GOPATH/bin`, y sino tuvieramos variable _GOPATH_ se guardará en `$HOME/go/bin`.
 
-Con `go vet` comprobamos si hay algun problema, o algun paquete deprecado. Con `go tidy` lo que se hace es revisar todos los paquetes que se usan y asegurar que esten presentes en `go.mod` y al tiempo se eliminan aquellas referencias que no se usen. Típicamente ejecutamos `go tidy` cuando actualizamos los paquetes que usamos.
+Con `go vet` comprobamos si hay algun problema, o algun paquete deprecado. Con `go mod tidy` lo que se hace es revisar todos los paquetes que se usan y asegurar que esten presentes en `go.mod` y al tiempo se eliminan aquellas referencias que no se usen. Típicamente ejecutamos `go mod tidy` cuando actualizamos los paquetes que usamos.
 
 Para construir la utilidad `kuard` usaremos un dockerfile multistage. Comentar algunas cosillas:
 
@@ -2028,3 +2028,6 @@ y dentro hay **tres archivos, un por cada parámetro definido en el ConfigMap**
 ![archivos](./imagenes/archivos.png)
 
 y el contenido de cada archivo es el valor del parametro.
+
+### Secrets
+

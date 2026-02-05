@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"net/http"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 
@@ -71,7 +72,7 @@ func LoadFilesInDir(dir string) (map[string]string, error) {
 		}
 		for _, entry := range entries {
 			if !entry.IsDir() {
-				data, err := fs.ReadFile(Assets, filepath.Join("templates", entry.Name()))
+				data, err := fs.ReadFile(Assets, path.Join("templates", entry.Name()))
 				if err != nil {
 					return dirData, errors.Wrapf(err, "Error loading embedded file %v", entry.Name())
 				}

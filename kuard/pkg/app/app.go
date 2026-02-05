@@ -1,6 +1,7 @@
 package app
 
 import (
+	"fmt"
 	"html/template"
 	"log"
 	"net"
@@ -167,7 +168,43 @@ func NewApp() *App {
 		sitedata.AddRoutes(router, prefix+"/built")
 		sitedata.AddRoutes(router, prefix+"/static")
 
-		router.Handler("GET", prefix+"/fs/*filepath", http.StripPrefix(prefix+"/fs", http.FileServer(http.Dir("/"))))
+		// Custom file system browser handler that enlarges text for directory listings.
+		router.Handler("GET", prefix+"/fs/*filepath",
+			http.StripPrefix(prefix+"/fs", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				// Serve files from the current working directory. r.URL.Path is the path after the StripPrefix.
+				p := filepath.Clean("." + r.URL.Path)
+
+				info, err := os.Stat(p)
+				if err != nil {
+					http.NotFound(w, r)
+					return
+				}
+				if !info.IsDir() {
+					http.ServeFile(w, r, p)
+					return
+				}
+
+				entries, err := os.ReadDir(p)
+				if err != nil {
+					http.Error(w, "Failed to read directory", http.StatusInternalServerError)
+					return
+				}
+
+				w.Header().Set("Content-Type", "text/html; charset=utf-8")
+				fmt.Fprintf(w, "<html><head><meta charset=\"utf-8\"><style>body{font-size:18px}</style></head><body><h1>Index of %s</h1><ul>", r.URL.Path)
+				for _, e := range entries {
+					name := e.Name()
+					display := name
+					if e.IsDir() {
+						display = name + "/"
+					}
+					// Links are relative to the current directory
+					href := name
+					fmt.Fprintf(w, `<li><a href="%s">%s</a></li>`, href, display)
+				}
+				fmt.Fprint(w, "</ul></body></html>")
+			})),
+		)
 
 		k.m.AddRoutes(router, prefix+"/mem")
 		k.live.AddRoutes(router, prefix+"/healthy")
