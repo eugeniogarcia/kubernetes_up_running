@@ -1,0 +1,81 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mi-configuracion
+  namespace: default
+data:
+  my-config.txt: "# Ejemplo de archivo de configuracion\r\nparametro1 = valor1\r\nparametro2
+    = valor2\r\n"
+  otro-parametro: otro-valor
+  parametro-extra: valor-extra
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: kuard-config
+  labels:
+    app: ejemplo-configuracion
+spec:
+  containers:
+    - name: test-container
+      image: docker.io/egsmartin/kuard:latest
+      imagePullPolicy: Always
+      ports:
+        - containerPort: 8080 # puerto que expone el contenedor. Lo llamamos http
+          name: http
+          protocol: TCP      
+      command:
+        - "/kuard"
+        - "$(EXTRA_PARAM)" # ejecutamos pasando una variable de entorno que se obtiene del ConfigMap
+      env: # variables de entorno que se pasan al contenedor
+        - name: ANOTHER_PARAM # Método 3. Definimos una variable de entorno que pasaremos como argumento al comando que se ejecuta en el contenedor
+          valueFrom: # Observer que no le asignamos un value, sino que referenciamos un parametro de un configMap 
+            configMapKeyRef:
+              name: mi-configuracion
+              key: otro-parametro
+        - name: EXTRA_PARAM # Método 2. Definimos una variable de entorno con el valor de uno de los parámetros del configMap
+          valueFrom: # Observer que no le asignamos un value, sino que referenciamos un parametro de un configMap
+            configMapKeyRef:
+              name: mi-configuracion
+              key: parametro-extra
+      volumeMounts:
+        - name: config-volume # Método 1. Montamos el volumen en el contenedor. Como este volumen se construyo sobre un configMap, el contenido del configMap se montará en el contenedor
+          mountPath: /mi-configuracion
+  volumes: # Método 1. Definimos un volumen...
+    - name: config-volume
+      configMap: # ...en el que montamos el configMap
+        name: mi-configuracion
+  restartPolicy: Never
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: ejemplo-configuracion
+  name: kuard 
+spec: 
+  ports:
+  - port: 8080 # puerto del servicio
+    protocol: TCP
+    targetPort: 8080 # puerto del pod al que se redirigen las peticiones al servicio
+  selector: # selector para identificar los pods que forman parte del servicio
+    app: ejemplo-configuracion
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: configuracion
+spec:
+  ingressClassName: contour
+  rules:
+    - host: gz.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: kuard
+                port:
+                  number: 8080 # puerto donde se expone el servicio
+

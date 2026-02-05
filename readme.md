@@ -1969,3 +1969,62 @@ Siguiendo el ejemplo que hemos visto en el caso antetior, podemos definir un job
 ```ps
 kubectl apply -f ./job-cron.yaml
 ```
+
+## ConfigMaps
+
+Si tenemos un arvhico de configuración, `my-config.txt`, podemos crear un ConfigMap a partir de él:
+
+```ps
+kubectl create configmap mi-configuracion `
+  --from-file=my-config.txt `
+  --from-literal=parametro-extra=valor-extra `
+  --from-literal=otro-parametro=otro-valor
+```
+
+en este comando hemos creado un ConfigMap con el contendio del archivo de configuracion usando el argumento `from-file` y le hemos añadido además un par de parametros más usando el argumento `from-literal` en la linea de comando. Podemos ver que se ha creado:
+
+```ps
+kubectl get configmap
+
+NAME               DATA   AGE
+kube-root-ca.crt   1      8m13s
+mi-configuracion   3      3m
+
+
+kubectl get configmap mi-configuracion -o yaml
+
+apiVersion: v1
+data:
+  my-config.txt: "# Ejemplo de archivo de configuracion\r\nparametro1 = valor1\r\nparametro2
+    = valor2\r\n"
+  otro-parametro: otro-valor
+  parametro-extra: valor-extra
+kind: ConfigMap
+metadata:
+  creationTimestamp: "2026-02-05T05:56:37Z"
+  name: mi-configuracion
+  namespace: default
+  resourceVersion: "1395"
+  uid: f1ba3e6f-5fff-4f7b-9ba5-18b88630eeb2
+```
+
+observese como en el config map tenemos tres key-values, el primero tiene como key el nombre del archivo y como valor su contenido, y los otros dos son los key-values que pasamos por la línea de comandos. En el `ejemplo.yaml` he incluido esta definición del config map, el único problema es que declarando el recurso de esta manera no puedo hacer referencia al archivo, como he hecho con `kubectl create configmap my-config --from-file=my-config.txt`, tendría que "pegar" directamente el contenido.
+
+Podemos usar el config map de tres formas:
+- montarlo como un volumen. En la imagen tendriamos acceso al contenido del config map como si fuera un archivo disponible en el volumen
+- variables de entorno. Definiendo una variable de entorno que tenga como contenido alguno de los parametros del config map
+- definiendo una variable de entorno y pasandola como argumento al programa que se arranca en la imagen 
+
+Si arrancamos `kubectl apply -f .\ejemplo.yaml` podemos observar, que se han creado las dos variables de entorno que esperabamos:
+
+![var_ent](./imagenes/var_ent.png)
+
+y en el filesystem veremos el volumen que hemos montado en el directorio mi-configuracion: 
+
+![directorio](./imagenes/directorio.png)
+
+y dentro hay **tres archivos, un por cada parámetro definido en el ConfigMap**
+
+![archivos](./imagenes/archivos.png)
+
+y el contenido de cada archivo es el valor del parametro.
