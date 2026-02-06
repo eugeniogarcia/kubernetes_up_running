@@ -2072,7 +2072,7 @@ DNS.1 = kuard.gz.com
 DNS.2 = gz.com
 ```
 
-podemos crear el secret:
+podemos crear el secret. Vamos a necesitar dos secrets. El secret que asociemos al Ingress (tanto si el Ingress hace la _termination_ como si hace pass-thorugh y se termina en el Pod). Para asociar al Pod es un `generic`:
 
 ```ps
 kubectl create secret generic kuard-tls `
@@ -2080,11 +2080,18 @@ kubectl create secret generic kuard-tls `
   --from-file=kuard.key
 ```
 
+sin embargo para usar en el Ingress necesitamos un tipo `tls`:
+
+```ps
+kubectl create secret tls kuard-tls-ingress -n default --cert=./kuard.crt --key=./kuard.key
+```
+
 ```ps
 kubectl get secrets
 
-NAME        TYPE     DATA   AGE
-kuard-tls   Opaque   2      8s
+NAME                TYPE                DATA   AGE
+kuard-tls           Opaque              2      12h
+kuard-tls-ingress   kubernetes.io/tls   2      12s
 ```
 
 Vamos ahora a crear un pod con un volumen que mapea el secret en una ruta de disco. El secret se guardará en un disco en memoria para evitar que se guarde en disco dentro del nodo.

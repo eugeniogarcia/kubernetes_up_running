@@ -24,6 +24,9 @@ spec:
         - containerPort: 8080 # puerto que expone el contenedor. Lo llamamos http
           name: http
           protocol: TCP      
+        - containerPort: 8443 # puerto que expone el contenedor. Lo llamamos https
+          name: https
+          protocol: TCP   
       command:
         - "/kuard"
         - "$(EXTRA_PARAM)" # ejecutamos pasando una variable de entorno que se obtiene del ConfigMap
@@ -41,10 +44,16 @@ spec:
       volumeMounts:
         - name: config-volume # Método 1. Montamos el volumen en el contenedor. Como este volumen se construyo sobre un configMap, el contenido del configMap se montará en el contenedor
           mountPath: /mi-configuracion
+        - name: tls-certs
+          mountPath: "/tls"
+          readOnly: true # nos aseguramos que solo se cargue en memoria y no se pueda modificar. Al no estar guardado en el nodo es más seguro
   volumes: # Método 1. Definimos un volumen...
     - name: config-volume
       configMap: # ...en el que montamos el configMap
         name: mi-configuracion
+    - name: tls-certs
+      secret:
+        secretName: kuard-tls
   restartPolicy: Never
 ---
 apiVersion: v1
@@ -56,8 +65,13 @@ metadata:
 spec: 
   ports:
   - port: 8080 # puerto del servicio
+    name: http
     protocol: TCP
     targetPort: 8080 # puerto del pod al que se redirigen las peticiones al servicio
+  - port: 8443 # puerto del servicio
+    name: https
+    protocol: TCP
+    targetPort: 8443 # puerto del pod al que se redirigen las peticiones al servicio
   selector: # selector para identificar los pods que forman parte del servicio
     app: ejemplo-configuracion
 ---
@@ -68,7 +82,7 @@ metadata:
 spec:
   ingressClassName: contour
   rules:
-    - host: gz.com
+    - host: oper.gz.com
       http:
         paths:
           - path: /
@@ -78,4 +92,30 @@ spec:
                 name: kuard
                 port:
                   number: 8080 # puerto donde se expone el servicio
-
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ingress-terminacion-tls
+spec:
+  ingressClassName: contour
+  # TLS termination at the ingress (Contour will terminate TLS):
+  # - Client connects over HTTPS to this ingress (port 443)
+  # - Contour uses the `kuard-tls-ingress` Secret to terminate TLS and forwards plain HTTP
+  # - The backend Service is the HTTP port (8080) in the pod
+  # Ensure the `kuard-tls-ingress` secret is of type `kubernetes.io/tls` with keys `tls.crt` and `tls.key`
+  tls:
+    - hosts:
+        - kuard.gz.com
+      secretName: kuard-tls-ingress
+  rules:
+    - host: kuard.gz.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: kuard
+                port:
+                  number: 8080 # puerto donde se expone el servicio
