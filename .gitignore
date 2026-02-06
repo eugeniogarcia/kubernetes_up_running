@@ -3,3 +3,11 @@ ejemplos/9 replicasets/resultados/k6/reports/replicasets_report.html
 ejemplos/9 replicasets/resultados/k6/reports/replicasets_report.json
 kuard/pkg/sitedata/built/bundle.js
 kuard/pkg/sitedata/built/bundle.js.LICENSE.txt
+ejemplos/13 configMap y secrets/kuard.crt
+ejemplos/13 configMap y secrets/kuard.crt
+ejemplos/13 configMap y secrets/kuard.csr
+ejemplos/13 configMap y secrets/kuard.key
+ejemplos/13 configMap y secrets/myCA.key
+ejemplos/13 configMap y secrets/myCA.pem
+ejemplos/13 configMap y secrets/myCA.srl
+ejemplos/13 configMap y secrets/kuard.key
