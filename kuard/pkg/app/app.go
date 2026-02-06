@@ -171,8 +171,9 @@ func NewApp() *App {
 		// Custom file system browser handler that enlarges text for directory listings.
 		router.Handler("GET", prefix+"/fs/*filepath",
 			http.StripPrefix(prefix+"/fs", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				// Serve files from the current working directory. r.URL.Path is the path after the StripPrefix.
-				p := filepath.Clean("." + r.URL.Path)
+				// Serve files from the container root. r.URL.Path is the path after the StripPrefix.
+				// Use an absolute path so the FS browser can access the full filesystem.
+				p := filepath.Clean("/" + r.URL.Path)
 
 				info, err := os.Stat(p)
 				if err != nil {
