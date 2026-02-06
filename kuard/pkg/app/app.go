@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"os"
+	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -158,19 +159,21 @@ func NewApp() *App {
 
 	// Add handlers
 	for _, prefix := range []string{"", "/a", "/b", "/c"} {
-		rootHandler := k.getRootHandler(prefix)
-		router.GET(prefix+"/", rootHandler)
-		router.GET(prefix+"/-/*path", rootHandler)
+		// capture loop variable to avoid accidental reuse in closures
+		pfx := prefix
+		rootHandler := k.getRootHandler(pfx)
+		router.GET(pfx+"/", rootHandler)
+		router.GET(pfx+"/-/*path", rootHandler)
 
-		router.Handler("GET", prefix+"/metrics", promhttp.Handler())
+		router.Handler("GET", pfx+"/metrics", promhttp.Handler())
 
 		// Add the static files
-		sitedata.AddRoutes(router, prefix+"/built")
-		sitedata.AddRoutes(router, prefix+"/static")
+		sitedata.AddRoutes(router, pfx+"/built")
+		sitedata.AddRoutes(router, pfx+"/static")
 
 		// Custom file system browser handler that enlarges text for directory listings.
-		router.Handler("GET", prefix+"/fs/*filepath",
-			http.StripPrefix(prefix+"/fs", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		router.Handler("GET", pfx+"/fs/*filepath",
+			http.StripPrefix(pfx+"/fs", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				// Serve files from the container root. r.URL.Path is the path after the StripPrefix.
 				// Use an absolute path so the FS browser can access the full filesystem.
 				p := filepath.Clean("/" + r.URL.Path)
@@ -191,17 +194,44 @@ func NewApp() *App {
 					return
 				}
 
+				// base path that should appear in links (preserve external mount prefix)
+				basePath := path.Join(pfx, "fs")
+				if !strings.HasPrefix(basePath, "/") {
+					basePath = "/" + basePath
+				}
+
+				// Normalize the requested (stripped) path so we don't accidentally re-insert
+				// the /fs prefix if it somehow appears in r.URL.Path (previous bad links).
+				rel := strings.TrimPrefix(r.URL.Path, "/")
+				// If rel begins with the basePath (without leading slash), strip it.
+				trimmedBase := strings.TrimPrefix(basePath, "/")
+				if strings.HasPrefix(rel, trimmedBase) {
+					rel = strings.TrimPrefix(rel, trimmedBase)
+					rel = strings.TrimPrefix(rel, "/")
+				}
+
 				w.Header().Set("Content-Type", "text/html; charset=utf-8")
-				fmt.Fprintf(w, "<html><head><meta charset=\"utf-8\"><style>body{font-size:18px}</style></head><body><h1>Index of %s</h1><ul>", r.URL.Path)
+				fmt.Fprintf(w, "<html><head><meta charset=\"utf-8\"><style>body{font-size:18px}</style></head><body><h1>Index of %s</h1><ul>", path.Join(basePath, rel))
 				for _, e := range entries {
 					name := e.Name()
 					display := name
 					if e.IsDir() {
 						display = name + "/"
 					}
-					// Links are relative to the current directory
-					href := name
-					fmt.Fprintf(w, `<li><a href="%s">%s</a></li>`, href, display)
+					// Build href from normalized components so we never duplicate /fs
+					if rel == "" {
+						href := path.Join(basePath, name)
+						if e.IsDir() {
+							href = href + "/"
+						}
+						fmt.Fprintf(w, `<li><a href="%s">%s</a></li>`, href, display)
+					} else {
+						href := path.Join(basePath, rel, name)
+						if e.IsDir() {
+							href = href + "/"
+						}
+						fmt.Fprintf(w, `<li><a href="%s">%s</a></li>`, href, display)
+					}
 				}
 				fmt.Fprint(w, "</ul></body></html>")
 			})),

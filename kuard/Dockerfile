@@ -25,11 +25,14 @@ COPY --from=build /go/bin/kuard /kuard
 # Copy application files into the image so the runtime FS browser can read them
 COPY . /app
 
+# Create a dedicated non-root user with known UID/GID so Kubernetes can set fsGroup
+RUN addgroup -g 1000 kuard && adduser -D -u 1000 -G kuard kuard
+
 # Ensure the runtime user can read the files and set working dir
-RUN chown -R nobody:nobody /app /kuard
+RUN chown -R kuard:kuard /app /kuard
 WORKDIR /app
 
-USER nobody:nobody
+USER kuard:kuard
 EXPOSE 8080
 
 ENTRYPOINT ["/kuard"]
