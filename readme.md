@@ -2045,10 +2045,24 @@ Lo que se hace es asociar a la Service Account de Kubernetes una Indentidad fede
 
 En nuestro ejemplo vamos a guardar en el key store un certificado y su private key.
 
-Generamos el certificado:
+Generamos el certificado (abro una sesión de **git bash**). Vamos a hacerlo ordenado:
+
+Creamos la CA:
 
 ```ps
-openssl req -newkey rsa:2048 -nodes -keyout kuard.key -x509 -days 365 -out kuard.crt -config openssl.cnf -extensions v3_req
+openssl genrsa -out myCA.key 4096
+
+openssl req -x509 -new -nodes -key myCA.key -sha256 -days 3650 -out myCA.pem -subj "//CN=My Local Dev CA"
+```
+
+Ahora podemos importar este `` en nuestro almacen de certificados, y así todos los certificados emitidos por esta autoridad serán válidos. A continuación creamos un certificado y lo firmamos con esa CA:
+
+```ps
+openssl genrsa -out kuard.key 2048
+
+openssl req -new -key kuard.key -out kuard.csr -config openssl.cnf -subj "//CN=gz.com"
+
+openssl x509 -req -in kuard.csr -CA myCA.pem -CAkey myCA.key -CAcreateserial -out kuard.crt -days 365 -sha256 -extfile openssl.cnf -extensions v3_req
 ```
 
 este certificado es válido para estos dos DNSs:
