@@ -2029,5 +2029,50 @@ y dentro hay **tres archivos, un por cada parámetro definido en el ConfigMap**
 
 y el contenido de cada archivo es el valor del parametro.
 
-### Secrets
+## Secrets
 
+Secrets permiten que los contenedores se creen sin guardar información sensible y sin ninguna dependencia con el entorno en el que se han de desplegar. Por defecto Kubernetes Secrets se guardan en texto sin cifrar en `etcd`, de modo que cualquiera con permisos en el cluster podria verlos. Los cloud providers suelen propocionar funcionalidades de encriptación por medio de una key gestionada por el usuario
+
+Adicionalmente la mayoría de cloud key stores incorporan una integración con volumenes Kubernetes Secrets Store CSI, de modo que toda la gestión de los secrets se hace puede hacer en el key store del proveedor cloud en lugar de utilizar Kubernetes Secrets.
+
+Con Kubernetes Secrets Store lo que hacemos es
+a) guardamos los secretos en un Key Store, no en el cluster de Kubernetes
+b) el driver permite mapear en un pod secrets gestionados en el Key Store como archivos en el file system
+
+En este sentido desde el punto de vista del pod funciona similar a un secret, pero el secret no esta gestionado en Kubernetes
+
+Lo que se hace es asociar a la Service Account de Kubernetes una Indentidad federada con el Key Store que es la que permite a una determinada Service Account acceder a unos secretos y no acceder a otros
+
+En nuestro ejemplo vamos a guardar en el key store un certificado y su private key.
+
+Generamos el certificado:
+
+```ps
+openssl req -newkey rsa:2048 -nodes -keyout kuard.key -x509 -days 365 -out kuard.crt -config openssl.cnf -extensions v3_req
+```
+
+este certificado es válido para estos dos DNSs:
+
+```cnf
+DNS.1 = kuard.gz.com
+DNS.2 = gz.com
+```
+
+podemos crear el secret:
+
+```ps
+kubectl create secret generic kuard-tls `
+  --from-file=kuard.crt `
+  --from-file=kuard.key
+```
+
+```ps
+kubectl get secrets
+
+NAME        TYPE     DATA   AGE
+kuard-tls   Opaque   2      8s
+```
+
+Vamos ahora a crear un pod con un volumen que mapea el secret en una ruta de disco. El secret se guardará en un disco en memoria para evitar que se guarde en disco dentro del nodo.
+
+he incluido en `ejemplo.yaml` un pod que monta el secret
