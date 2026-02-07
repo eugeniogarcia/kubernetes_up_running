@@ -1,0 +1,153 @@
+apiVersion: v1
+kind: ServiceAccount # cuenta de servicio para el pod
+metadata:
+  name: pod-primos-sa
+  namespace: default
+---
+apiVersion: v1
+kind: ServiceAccount # cuenta de servicio para el pod
+metadata:
+  name: pod-multiplicador-sa
+  namespace: default
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mult3
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: mult3
+  template:
+    metadata:
+      labels:
+        app: mult3
+    spec:
+      serviceAccountName: pod-multiplicador-sa # indicamos cual es la cuenta de servicio que va a usar el pod
+      containers:
+      - name: multiplica
+        image: docker.io/egsmartin/multiplica:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8080
+        env:
+        - name: MULTIPLIER
+          value: "3"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mult2
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: mult2
+  template:
+    metadata:
+      labels:
+        app: mult2
+    spec:
+      serviceAccountName: pod-multiplicador-sa # indicamos cual es la cuenta de servicio que va a usar el pod
+      containers:
+      - name: multiplica
+        image: docker.io/egsmartin/multiplica:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8080
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: primos
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: primos
+  template:
+    metadata:
+      labels:
+        app: primos
+    spec:
+      serviceAccountName: pod-primos-sa
+      containers:
+      - name: primos
+        image: docker.io/egsmartin/primos:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8080
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mult3
+spec:
+  selector:
+    app: mult3
+  ports:
+  - port: 80
+    targetPort: 8080
+    protocol: TCP
+    name: http
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mult2
+spec:
+  selector:
+    app: mult2
+  ports:
+  - port: 80 # puerto que se expone en el servicio
+    targetPort: 8080 # puerto donde escucha la aplicacion en el contenedor
+    protocol: TCP
+    name: http
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: primos
+spec:
+  selector:
+    app: primos
+  ports:
+  - port: 80 # puerto que se expone en el servicio
+    targetPort: 8080 # puerto donde escucha la aplicacion en el contenedor
+    protocol: TCP
+    name: http
+---
+apiVersion: projectcontour.io/v1
+kind: HTTPProxy
+metadata:
+  name: operaciones
+  namespace: default
+spec:
+  virtualhost:
+    fqdn: oper.gz.com
+  routes:
+    - conditions:
+      - prefix: /m3
+      services:
+        - name: mult3
+          port: 80
+      pathRewritePolicy:
+        replacePrefix:
+        - replacement: /multiplica
+    - conditions:
+      - prefix: /m2
+      services:
+        - name: mult2
+          port: 80
+      pathRewritePolicy:
+        replacePrefix:
+        - replacement: /multiplica
+    - conditions:
+      - prefix: /p
+      services:
+        - name: primos
+          port: 80
+      pathRewritePolicy:
+        replacePrefix:
+        - replacement: /primos

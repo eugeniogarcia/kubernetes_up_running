@@ -2055,7 +2055,7 @@ openssl genrsa -out myCA.key 4096
 openssl req -x509 -new -nodes -key myCA.key -sha256 -days 3650 -out myCA.pem -subj "//CN=My Local Dev CA"
 ```
 
-Ahora podemos importar este `` en nuestro almacen de certificados, y así todos los certificados emitidos por esta autoridad serán válidos. A continuación creamos un certificado y lo firmamos con esa CA:
+Ahora podemos importar este `myCA.pem` en nuestro almacen de certificados, y así todos los certificados emitidos por esta autoridad serán válidos. A continuación creamos un certificado y lo firmamos con esa CA:
 
 ```ps
 openssl genrsa -out kuard.key 2048
@@ -2097,3 +2097,196 @@ kuard-tls-ingress   kubernetes.io/tls   2      12s
 Vamos ahora a crear un pod con un volumen que mapea el secret en una ruta de disco. El secret se guardará en un disco en memoria para evitar que se guarde en disco dentro del nodo.
 
 he incluido en `ejemplo.yaml` un pod que monta el secret
+
+## Seguridad (RBAC)
+
+Toda solicitud que se hace a Kubernetes se autentica primero. La autenticación proporciona la **identidad del principal** que emite la solicitud. **Kubernetes no tiene un almacén de identidades integrado**, enfocándose en cambio en integrar otras fuentes de identidad dentro de sí mismo. Una vez que tenemos el principal autenticado, la fase de autorización determina si están autorizados para realizar la solicitud. La **autorización es una combinación de** la **identidad** del principal, el **recurso** (efectivamente la ruta HTTP) y el **verbo** o acción que el usuario intenta realizar. Si la petición no esta autorizada se devuelve un error HTTP 403.
+
+
+Toda solicitud a Kubernetes está asociada con alguna identidad. Incluso una solicitud sin identidad está asociada con el grupo `system:unauthenticated`. Kubernetes hace una distinción entre **identidades de usuario e identidades de cuenta de servicio**. Las cuentas de servicio son creadas y administradas por Kubernetes y generalmente están asociadas con componentes que se ejecutan dentro del clúster. Las cuentas de usuario son todas las otras cuentas asociadas con usuarios reales del clúster e incluyen automatización como servicios de entrega continua que
+se ejecutan fuera del clúster.
+
+Kubernetes utiliza una interfaz genérica para **proveedores de autenticación**. Cada proveedor suministra un nombre de usuario y, opcionalmente, el conjunto de grupos a los que pertenece el usuario. Kubernetes soporta varios proveedores de autenticación:
+
+- Autenticación Básica
+- Certificados de cliente x509
+- Archivos de token estáticos en el host
+- Proveedores de autenticación en la nube (Azure Active Directory, AWS IAM)
+- Webhooks de autenticación
+
+### Role y Role Bindings
+
+Dos parajas de objetos constituyen la base de la autorización. Por un lado `Role` and `RoleBinding` que se definen a nivel de namespace, y `ClusterRole` y `ClusterRoleBinding` a nivel de cluster.
+
+`Role` resources representan las diferentes capacidades disponibles en un namespace.
+
+```yaml
+kind: Role
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  namespace: default
+  name: pod-and-services
+rules:
+- apiGroups: [""]
+  resources: ["pods", "services"]
+  verbs: ["create", "delete", "get", "list", "patch", "update", "watch"]
+```
+
+este role se refiere a los recursos `pods` y `services` y una serie de acciones concretas. Con `RoleBinding` asignamos estos recursos (`roleRef`) a un usuario, a un grupo (`subjects`):
+
+```yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  namespace: default
+  name: pods-and-services
+subjects:
+- apiGroup: rbac.authorization.k8s.io
+  kind: User
+  name: alice
+- apiGroup: rbac.authorization.k8s.io
+  kind: Group
+  name: mydevs
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: pod-and-services
+```
+
+Supongamos que queremos crear un Pod que usa un secret, un configMap, y un par de imagenes procedentes de sendos repositorios privados. El pod tiene especificada una service account "misa" (en lugar de usar la service account por defecto del namespace).
+
+Esto es lo que sucede:
+- El usuario que hace el apply para crear el Pod se autentica con el IAM, y se recupera su identidad y sus grupos.
+
+- La identidad/grupo tiene que tener bindeado un rol que incluya el recurso "pod" y el verb "create". Esto hara posible que enviemos la creación del Pod al api server
+
+- Una vez recibida la petición en el api server y comprobado que el usuario puede crear pods, este se registra en etcd, y de ahí el scheduler identifica el nodo en el que ejecutar el pod
+
+- el kubelet del nodo elegido procede a crear el Pod, para ello utiliza la service account del pod, y comprueba que tenga permisos para usar el secret indicado en el "imagePullSecret" del pod. Con las credenciales de ese secreto se descargan las imagenes. Se comprueba que el service account tenga permisos para usar el secret y el configMap que debe montarse con el pod:
+
+- Descargar las imágenes del contenedor
+- Montar los volúmenes (ConfigMap, Secret)
+- Crear el pod
+
+**Notese que para poder crear el Pod con la service account xxxxx, el usuario tiene que tener permisos para usar el recurso "serviceaccount", nombre de recurso "xxxxx", y verbo "use"**.
+
+Los verbos disponibles son los siguientes:
+
+|Verb|HTTP method|Description|
+|-----|-----|-----|
+|create|POST|Create a new resource.|
+|delete|DELETE|Delete an existing resource.|
+|get|GET|Get a resource.|
+|list|GET|List a collection of resources.|
+|patch|PATCH|Modify an existing resource via a partial change.|
+|update|PUT|Modify an existing resource via a complete object.|
+|watch|GET|Watch for streaming updates to a resource.|
+|proxy|GET|Connect to resource via a streaming WebSocket proxy.|
+
+Además de los roles que podemos crear existen una serie de roles predefinidos que están asignados a principales del cluster (scheduler, etcd, apiserver, etc.)
+
+```ps
+kubectl get clusterroles
+```
+
+Por defecto el API Server de Kubernetes instala un role que permite el acceso al principal `system:unauthenticated` a la api de _discovery_ del API Server. Esta es una configuración por defecto que supone una vulnerabilidad que debe evitarse en casi todos los escenarios. Para cambiar esta configuración usar el flag `--anonymous-auth=false` del API Server
+
+### ejercicio
+
+Los objetos de este ejercicio los tenemos en `ejemplos.yaml`. Vamos a crear varias cuentas de servicio:
+
+```yaml
+apiVersion: v1
+kind: ServiceAccount # cuenta de servicio para el pod
+metadata:
+  name: ppod-multiplicador-sa
+  namespace: default
+```
+
+que asociamos a los Pods:
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mult3
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: mult3
+  template:
+    metadata:
+      labels:
+        app: mult3
+    spec:
+      serviceAccountName: pod-multiplicador-sa # indicamos cual es la cuenta de servicio que va a usar el pod
+      containers:
+      - name: multiplica
+        image: docker.io/egsmartin/multiplica:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8080
+        env:
+        - name: MULTIPLIER
+          value: "3"
+```
+
+En `rbac.yaml` tenemos más recursos que forman parte de este ejercicio. Por un lador tenemos roles, por ejemplo, este rol hace referencia al servicio primos:
+
+```yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: access-primos
+  namespace: default
+rules:
+  - apiGroups: [""]
+    resources: ["services"]
+    resourceNames: ["primos"]
+    verbs: ["get"]
+---
+```
+
+a continuación creamos los RoleBinding de estos roles con los subjects que están autorizados a utilizarlos, por ejemplo:
+
+```yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: bind-access-primos-to-user
+  namespace: default
+subjects:
+  - kind: User
+    name: user-primos
+    apiGroup: rbac.authorization.k8s.io
+roleRef:
+  kind: Role
+  name: access-primos
+  apiGroup: rbac.authorization.k8s.io
+```
+
+```ps
+kubectl get roles
+
+NAME               CREATED AT
+access-mult        2026-02-07T12:22:49Z
+access-primos      2026-02-07T12:22:49Z
+pod-and-services   2026-02-07T12:22:49Z
+
+kubectl get rolebindings
+
+NAME                         ROLE                    AGE
+bind-access-mult-to-group    Role/access-mult        28s
+bind-access-mult-to-user     Role/access-mult        28s
+bind-access-primos-to-user   Role/access-primos      28s
+pods-and-services            Role/pod-and-services   28s
+
+kubectl get serviceaccounts
+
+NAME                   AGE
+default                178m
+pod-multiplicador-sa   65m
+pod-primos-sa          65m
+```
+
