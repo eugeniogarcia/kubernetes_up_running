@@ -2056,6 +2056,8 @@ En nuestro ejemplo vamos a guardar en el key store un certificado y su private k
 
 - `*.pem` (**formato/contenedor PEM**): **Codificación Base64** con encabezados -----BEGIN ...-----. **Puede contener certificados, claves privadas o CSRs** (p.ej. myCA.pem puede ser el certificado autocreado de la CA). `.pem` **es un formato, no un tipo de contenido exclusivo**.
 
+- `*.pfx`/`*.p12` (**formato/contenedor PFX**): Contenedor binario que permite guardar en un solo archivo la clave privada, certificados y la cadena CA en un solo fichero. PEM es texto base64, y separa key, certificado y ca en archivos diferentes. Es típico su uso en windows
+
 - `*.srl` (serial): Archivo que guarda el último número de serie usado por la CA (creado por -CAcreateserial) para asegurar que cada certificado firmado tenga un serial único. Contiene el serial (hex/plain).
 
 Una vez hecha esta aclaración, generamos el certificado (abro una sesión de **git bash**). Vamos a hacerlo ordenado:
@@ -2473,6 +2475,54 @@ kubectl get pods
 Error from server (Forbidden): pods is forbidden: User "user-primos" cannot list resource "pods" in API group "" in the namespace "default"
 ```
 
+#### API Server
+
+Vamos a tener que convertir el certificado a formato `pfx` para poder usarlo con la utilidad _curl_ que viene con windows. Si nos fijamos en el certificado:
+
+```bash
+openssl x509 -in user-primos.crt -noout -issuer -subject -serial -dates
+
+issuer=CN=kubernetes
+subject=O=mult-group, CN=user-primos
+serial=0999C39C340BAA339A046068C035C07E
+notBefore=Feb  7 15:19:07 2026 GMT
+notAfter=Feb  7 15:19:07 2027 GMT
+```
+
+recordamos que el certificado fue firmado por la CA de nuestro cluster. Necesitamos el certificado de la CA para convertir nuestro certificado de usuario+clave privada+certificado de CA a formato `pfx`, asi que vamos a extraer el certificado de la CA:
+
+```bash
+kubectl config view --raw --minify -o jsonpath='{.clusters[0].cluster.certificate-authority-data}' | base64 -d > ca.crt
+```
+
+ahora ya podemos crear un PFX que contenga el certificado y clave privada del usuario asi como el certificado de la CA:
+
+```bash
+openssl pkcs12 -export -out user-primos.pfx \
+  -inkey user-primos.key -in user-primos.crt -certfile ca.crt 
+```
+
+ahora hacemos la llamada al api server:
+
+```ps
+$pfxPath = Resolve-Path ".\user-primos.pfx"
+
+$cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($pfxPath, "CONTRASEÑA")
+
+$response = Invoke-WebRequest -Uri "https://127.0.0.1:59589/api/v1/namespaces/default/services/primos" `
+                              -Certificate $cert `
+                               -UseBasicParsing
+$response.Content
+```
+
+sin embargo esto fallará por falta de permisos:
+
+```ps
+$response = Invoke-WebRequest -Uri "https://127.0.0.1:59589/api/v1/namespaces/default/services/multiplica" `
+                              -Certificate $cert `
+                               -UseBasicParsing
+```
+
 #### Permisos desde el Pod
 
 El contenedor se ha creado con un principal que determinará los permisos de lo que el Pod puede hacer. Si nos conectams al Pod podemos ver estas credeneciales:
@@ -2509,25 +2559,6 @@ kubectl config delete-context user-primos-context
 kubectl delete -f
 
 kubectl delete -f
+
+certutil -p vera1511 -importpfx .\user-primos.pfx
 ```
-
-
-
-
-kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}'
-https://127.0.0.1:59589
-
-curl.exe --cert user-primos.crt --key user-primos.key --cacert ca.crt `
-  "https://127.0.0.1:59589/apis/apps/v1/namespaces/default/services/primos"
-
-curl.exe --cert user-primos.crt --key user-primos.key --cacert ca.crt `
-  "https://127.0.0.1:59589/apis/apps/v1/namespaces/default/services/multiplica"
-
-curl --cert user-primos.crt --key user-primos.key --cacert ca.crt /
-  "https://127.0.0.1:59589/apis/apps/v1/namespaces/default/services/multiplica"
-
-curl --cert user-primos.crt --key user-primos.key --cacert ca.crt /
-  "https://127.0.0.1:59589/apis/apps/v1/namespaces/default/services/primos"
-
-
-
