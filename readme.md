@@ -1784,7 +1784,7 @@ Los jobs sirven para ejecutar pods que realizan una tarea y terminan. Si el pod 
 
 Podemos clasificar los jobs de esta forma:
 
-|------|------|------|------|------|
+
 |Type|Use case|Behavior|completions|parallelism|
 |------|------|------|------|------|
 |One shot|Migraciones de base de datos|Un único Pod que se ejecuta una sola vez hasta finalizar correctamente|1|1|
@@ -2045,9 +2045,22 @@ Lo que se hace es asociar a la Service Account de Kubernetes una Indentidad fede
 
 En nuestro ejemplo vamos a guardar en el key store un certificado y su private key.
 
-Generamos el certificado (abro una sesión de **git bash**). Vamos a hacerlo ordenado:
 
-Creamos la CA:
+**Aclaración**: Vamos a recordar el significado de los archivos que utilizamos cuando trabajamos con certificados:
+
+- `*.key` (**clave privada**): Archivo que contiene la clave privada del par (secreto, no compartir). Ejemplo: `openssl genrsa -out user.key 2048`.
+
+- `*.csr` (**Certificate Signing Request**): Petición que incluye la clave pública y el Subject; se envía a la CA para solicitar un certificado. Ver: `openssl req -in user.csr -noout -subject -pubkey`.
+
+- `*.crt` (**certificado X.509**): Certificado **emitido por una CA** que vincula una identidad con una clave pública. Suele ser PEM-encodado; ver: `openssl x509 -in cert.crt -noout -issuer -subject -dates`.
+
+- `*.pem` (**formato/contenedor PEM**): **Codificación Base64** con encabezados -----BEGIN ...-----. **Puede contener certificados, claves privadas o CSRs** (p.ej. myCA.pem puede ser el certificado autocreado de la CA). `.pem` **es un formato, no un tipo de contenido exclusivo**.
+
+- `*.srl` (serial): Archivo que guarda el último número de serie usado por la CA (creado por -CAcreateserial) para asegurar que cada certificado firmado tenga un serial único. Contiene el serial (hex/plain).
+
+Una vez hecha esta aclaración, generamos el certificado (abro una sesión de **git bash**). Vamos a hacerlo ordenado:
+
+Creamos la clave privada para nuestra CA, `myCA.key`, y un certificado en formato `pem`, `myCA.pem`, para la clave privada:
 
 ```ps
 openssl genrsa -out myCA.key 4096
@@ -2055,7 +2068,9 @@ openssl genrsa -out myCA.key 4096
 openssl req -x509 -new -nodes -key myCA.key -sha256 -days 3650 -out myCA.pem -subj "//CN=My Local Dev CA"
 ```
 
-Ahora podemos importar este `myCA.pem` en nuestro almacen de certificados, y así todos los certificados emitidos por esta autoridad serán válidos. A continuación creamos un certificado y lo firmamos con esa CA:
+Ahora podemos importar este `myCA.pem` en nuestro almacen de certificados, y así todos los certificados emitidos por esta autoridad serán válidos correctamente. A continuación creamos un clave privada para kuard, `kuard.key`, y creamos una solicitud para que se cree un certificado, `kuard.csr`. A partir del `kuard.csr` creamos un certificado en formato x509 utilizando el certificado de la CA: `kuard.crt`:
+
+certificado y lo firmamos con esa CA:
 
 ```ps
 openssl genrsa -out kuard.key 2048
@@ -2153,9 +2168,8 @@ roleRef:
   name: pod-and-services
 ```
 
-Supongamos que queremos crear un Pod que usa un secret, un configMap, y un par de imagenes procedentes de sendos repositorios privados. El pod tiene especificada una service account "misa" (en lugar de usar la service account por defecto del namespace).
+Supongamos que queremos crear un Pod que usa un secret, un configMap, y un par de imagenes procedentes de sendos repositorios privados. El pod tiene especificada una `serviceAccountName` (cuando no se especifica una tiene la service account por defecto del namespace). Esto es lo que sucede:
 
-Esto es lo que sucede:
 - El usuario que hace el apply para crear el Pod se autentica con el IAM, y se recupera su identidad y sus grupos.
 
 - La identidad/grupo tiene que tener bindeado un rol que incluya el recurso "pod" y el verb "create". Esto hara posible que enviemos la creación del Pod al api server
@@ -2174,14 +2188,14 @@ Los verbos disponibles son los siguientes:
 
 |Verb|HTTP method|Description|
 |-----|-----|-----|
-|create|POST|Create a new resource.|
-|delete|DELETE|Delete an existing resource.|
-|get|GET|Get a resource.|
-|list|GET|List a collection of resources.|
-|patch|PATCH|Modify an existing resource via a partial change.|
-|update|PUT|Modify an existing resource via a complete object.|
-|watch|GET|Watch for streaming updates to a resource.|
-|proxy|GET|Connect to resource via a streaming WebSocket proxy.|
+|create|POST|Crear un recurso|
+|delete|DELETE|Borrar un recurso|
+|get|GET|Recuperar un recurso|
+|list|GET|Listar recursos|
+|patch|PATCH|modificar un recurso|
+|update|PUT|Actualizar un recurso|
+|watch|GET|Observar (Watch) streaming updates de un recurso|
+|proxy|GET|Conectarse con un recurso via streaming WebSocket proxy.|
 
 Además de los roles que podemos crear existen una serie de roles predefinidos que están asignados a principales del cluster (scheduler, etcd, apiserver, etc.)
 
@@ -2191,7 +2205,9 @@ kubectl get clusterroles
 
 Por defecto el API Server de Kubernetes instala un role que permite el acceso al principal `system:unauthenticated` a la api de _discovery_ del API Server. Esta es una configuración por defecto que supone una vulnerabilidad que debe evitarse en casi todos los escenarios. Para cambiar esta configuración usar el flag `--anonymous-auth=false` del API Server
 
-### ejercicio
+### Ejercicio
+
+#### Recursos
 
 Los objetos de este ejercicio los tenemos en `ejemplos.yaml`. Vamos a crear varias cuentas de servicio:
 
@@ -2289,4 +2305,229 @@ default                178m
 pod-multiplicador-sa   65m
 pod-primos-sa          65m
 ```
+
+#### Creación de usuarios
+
+Vamos a crear usuarios mediante CSR (ejemplo para `user-primos`). Utilizamos el bash que viene con la instalación de git porque ya incluye openssl. La variable de entorno `MSYS_NO_PATHCONV` a 1 hace que no se interprete la barra del subject como un directorio en windows.
+
+Creamos una _key privada_ para nuestro usuario, `user-primos.key`:
+
+```bash
+openssl genrsa -out user-primos.key 2048
+```
+
+hacemos una solicitud para que se firme nuestra clave privada, `user-primos.csr`:
+
+```bash
+export MSYS_NO_PATHCONV=1
+openssl req -new -key user-primos.key -out user-primos.csr -subj "/CN=user-primos/O=mult-group"
+
+unset MSYS_NO_PATHCONV
+```
+
+Habitualmente, como hemos hecho cuando hemos securizado con https un servicio en el capitulo anterior, la CA firma la solicitud y crea el certificado `user-primos.crt`:
+
+```bash
+export MSYS_NO_PATHCONV=1
+
+openssl x509 -req -in user-primos.csr -CA "..\13 configMap y secrets\myCA.pem" -CAkey "..\13 configMap y secrets\myCA.key" -CAcreateserial -out user-primos.crt -days 365 -sha256
+
+unset MSYS_NO_PATHCONV
+```
+
+Haciendolo así **este certificado estaría firmado por nuestra CA**, pero no es esto lo que queremos, nosotros necesitamos que el certificado lo firme la **CA de nuestro cluster**, de modo que pueda ser utilizado en él. Por lo tanto lo que vamos a hacer es retormar el `csr` y firmarla en el cluster. Para hacer esto lo primero es convertir la csr a formato base64:
+
+```bash
+CSR_B64=$(cat user-primos.csr | base64 | tr -d '\n')
+```
+
+con el `csr` en formato 64 creamos la solicitud de firma para el cluster de kubernete. Creamos el `CertificateSigningRequest` para el usuario a partir de la plantilla y del certificado:
+
+```bash
+sed "s|<CSR_BASE64>|${CSR_B64}|; s|<NAME>|user-primos|" "./csr-template.yaml" > user-primos-csr.yaml
+```
+
+creamos la solicitud de firmado del certificado:
+
+```ps
+kubectl apply -f user-primos-csr.yaml
+
+certificatesigningrequest.certificates.k8s.io/user-primos created
+```
+
+podemos ver que se ha creado una solicitud de firmado de un certificado:
+
+```ps
+kubectl get certificatesigningrequest
+
+NAME          AGE   SIGNERNAME                            REQUESTOR          REQUESTEDDURATION   CONDITION
+user-primos   60s   kubernetes.io/kube-apiserver-client   kubernetes-admin   <none>              Pending
+```
+
+ahora un administrador puede proceder a aprovarla (podria también podría denegarla con _deny_):
+
+```ps
+kubectl certificate approve user-primos
+
+certificatesigningrequest.certificates.k8s.io/user-primos approved
+```
+
+efectivamente podemos ver que se ha aprovado y que ya no quedan solicitudes pendientes:
+
+```ps
+kubectl get certificatesigningrequest
+
+NAME          AGE   SIGNERNAME                            REQUESTOR          REQUESTEDDURATION   CONDITION
+user-primos   98s   kubernetes.io/kube-apiserver-client   kubernetes-admin   <none>              Approved,Issued
+```
+
+con esto el certificado se habrá creado y lo podemos extraer de la solicitud `csr` que hicimos, y condificarla en base64:
+
+```bash
+kubectl get csr user-primos -o jsonpath='{.status.certificate}' | base64 -d > user-primos.crt
+```
+
+#### Actualizar el contexto (para que use el usuario)
+
+Cuando hemos instalado el cluster kind se ha creado un contexto en nuestro equipo (la configuración que tenemos en local la podemos ver en `C:\Users\egsma\.kube\config`), que se usa por defecto al hacer kubectl:
+
+```ps
+kubectl config view
+
+
+apiVersion: v1
+clusters:
+- cluster:
+    certificate-authority-data: DATA+OMITTED
+    server: https://127.0.0.1:59589
+  name: docker-desktop
+contexts:
+- context:
+    cluster: docker-desktop
+    user: docker-desktop
+  name: docker-desktop
+current-context: docker-desktop
+kind: Config
+users:
+- name: docker-desktop
+  user:
+    client-certificate-data: DATA+OMITTED
+    client-key-data: DATA+OMITTED
+```
+
+Vamos a crear un contexto utilizando el usuario que hemos acabado de crear. Antes de hacerlo comprobemos si tenemos permiso para recuperar los recursos correspondientes a los dos servicios que hemos creado:
+
+```ps
+kubectl auth can-i get services/primos
+yes
+
+kubectl auth can-i get services/multiplica
+yes
+```
+
+podemos ver que con el contexto por defecto, que usa el usuario `docker-desktop` si tenemos acceso. Creamos el usuario
+
+```ps
+kubectl config set-credentials user-primos --client-certificate=user-primos.crt --client-key=user-primos.key
+```
+
+creamos el contexto con el usuario que acabamos de crear:
+
+```ps
+CLUSTER_NAME=$(kubectl config view -o jsonpath='{.clusters[0].name}')
+kubectl config set-context user-primos-context --cluster=${CLUSTER_NAME} --user=user-primos --namespace=default
+```
+
+si ahora repetimos la comprobación vemos que ya no tenemos acceso al recurso `services/multiplica`:
+
+```ps
+kubectl auth can-i get services/primos
+yes
+
+kubectl auth can-i get services/multiplica
+no
+```
+
+efectivamente no podemos recuperar los datos del servicio multiplica:
+
+```ps
+kubectl get services/multiplica
+
+Error from server (Forbidden): services "multiplica" is forbidden: User "user-primos" cannot get resource "services" in API group "" in the namespace "default"
+```
+
+sin embargo al servicio primos si tenemos acceso:
+
+```ps
+kubectl get services/primos
+
+NAME     TYPE        CLUSTER-IP      EXTERNAL-IP   PORT(S)   AGE
+primos   ClusterIP   10.96.143.152   <none>        80/TCP    4h41m
+```
+
+como no hemos asignado permisos para gestionar otros recursos en el rol que le hemos asignado al usuario, tampoco tenenmos permisos por ejemplo para ver los pods que corren:
+
+```ps
+kubectl get pods
+
+Error from server (Forbidden): pods is forbidden: User "user-primos" cannot list resource "pods" in API group "" in the namespace "default"
+```
+
+#### Permisos desde el Pod
+
+El contenedor se ha creado con un principal que determinará los permisos de lo que el Pod puede hacer. Si nos conectams al Pod podemos ver estas credeneciales:
+
+```ps
+kubectl exec -it primos-85d79f965c-kjl2r -- sh
+```
+
+```
+cat /var/run/secrets/kubernetes.io/serviceaccount/token
+
+eyJhbGciOiJSUzI1NiIsImtpZCI6IlkydHc3bTZoNkpLYmVKdmhnQm9RT2RuNjV0VnJGbmNNMXJqNmJ5bS1sQlEifQ.eyJhdWQiOlsiaHR0cHM6Ly9rdWJlcm5ldGVzLmRlZmF1bHQuc3ZjLmNsdXN0ZXIubG9jYWwiXSwiZXhwIjoxODAyMDE3NTYyLCJpYXQiOjE3NzA0ODE1NjIsImlzcyI6Imh0dHBzOi8va3ViZXJuZXRlcy5kZWZhdWx0LnN2Yy5jbHVzdGVyLmxvY2FsIiwianRpIjoiOWVlZmJjZTMtZjRmYi00OTE1LWE1ZGItZGE4YjQ0OWVjZmU5Iiwia3ViZXJuZXRlcy5pbyI6eyJuYW1lc3BhY2UiOiJkZWZhdWx0Iiwibm9kZSI6eyJuYW1lIjoiZGVza3RvcC13b3JrZXIiLCJ1aWQiOiJmY2UwOWIwNC00NDRkLTRiMDQtYmEzZS1lM2I4NTM5NThjOWYifSwicG9kIjp7Im5hbWUiOiJwcmltb3MtODVkNzlmOTY1Yy1ramwyciIsInVpZCI6ImMxOTJlNzQ4LWExNDMtNDFiZS1hODg0LTZhNGYzYmU1MjhhYiJ9LCJzZXJ2aWNlYWNjb3VudCI6eyJuYW1lIjoicG9kLXByaW1vcy1zYSIsInVpZCI6ImIwOTM0NzMyLWJmNGUtNDUxZS04NDMyLTNjNGNiZDQ5Y2ZkMiJ9LCJ3YXJuYWZ0ZXIiOjE3NzA0ODUxNjl9LCJuYmYiOjE3NzA0ODE1NjIsInN1YiI6InN5c3RlbTpzZXJ2aWNlYWNjb3VudDpkZWZhdWx0OnBvZC1wcmltb3Mtc2EifQ.Qwmy4DOi-Ky6SzVlSivJCO32n9utwxTdJNmE7vNWm68aESVuFXMeehFoqpQM3bqwcECXp6M6bG8vIs3dWsH5SUzotuujertPMgHfO8wjlfBmZqMOm5WrStsJFV8kjOrkzeSJP1fjqeSIKKuIBBt-WvPijGTBCZvgBxJq-f7x0WH3zYNWMAsfS6Szpzg91ItqVcCnypCby6iwbHDYRa0Iq1zWVz-BIWqs6TLH5Mp2fHhwI99vzneEkgUUt7WsNjHU97fs41r_ClAa6vyT4RRz8PsKIyE_dTAoZS4w5Sr_9XbJ_Ef3GUvlkULfGcc-MwPA3DY-cYx5frtMrRbvP8T6bQ/app
+```
+
+**si tuvieramos que mapear un ConfigMap o un Secret a este contenedor, este principal necesitaría tener los permisos correspondientes para ese servicio**.
+
+#### Limpiar
+
+Podemos volver a usar el contexto inicial:
+
+```ps
+kubectl config use-context docker-desktop
+```
+
+otros comandos relativos al contexto son:
+
+```ps
+kubectl config current-context
+
+kubectl config delete-context user-primos-context
+```
+
+```ps
+kubectl delete -f
+
+kubectl delete -f
+```
+
+
+
+
+kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}'
+https://127.0.0.1:59589
+
+curl.exe --cert user-primos.crt --key user-primos.key --cacert ca.crt `
+  "https://127.0.0.1:59589/apis/apps/v1/namespaces/default/services/primos"
+
+curl.exe --cert user-primos.crt --key user-primos.key --cacert ca.crt `
+  "https://127.0.0.1:59589/apis/apps/v1/namespaces/default/services/multiplica"
+
+curl --cert user-primos.crt --key user-primos.key --cacert ca.crt /
+  "https://127.0.0.1:59589/apis/apps/v1/namespaces/default/services/multiplica"
+
+curl --cert user-primos.crt --key user-primos.key --cacert ca.crt /
+  "https://127.0.0.1:59589/apis/apps/v1/namespaces/default/services/primos"
+
+
 
