@@ -2556,9 +2556,7 @@ kubectl config delete-context user-primos-context
 ```
 
 ```ps
-kubectl delete -f
+kubectl delete -f .\ejemplos.yaml
 
-kubectl delete -f
-
-certutil -p vera1511 -importpfx .\user-primos.pfx
+kubectl delete -f .\rbac.yaml
 ```
