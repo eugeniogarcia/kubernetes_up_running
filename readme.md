@@ -2758,6 +2758,10 @@ La duración de los Persistent Volumes la fija la _reclamation policy_ del Persi
 
 ## StatefulSets
 
-Persistent volumes funcionan muy bien para aplicaciones tradicionales, pero si queremos tener alta disponibilidad y persistencia en Kubernetes los StatefulSet funcionan muy bien.
+Persistent volumes funcionan muy bien para aplicaciones tradicionales, pero si queremos tener alta disponibilidad y persistencia en Kubernetes los StatefulSet funcionan muy bien. Podemos ver como utilizar StatefulSets con este ejemplo con mongo.
 
-Podemos ver como utilizar StatefulSets con este ejemplo con mongo.
+StatefulSets definen un grupo de Pods que se replican, similar a una ReplicaSets, pero con una serie de propiedades que los hacen diferentes del ReplicaSet:
+
+- Cada replica tiene un hostname predefinido, que se mantiene incluso si el Pod se tiene que recrear. En el hostname se usa un índice que representa la secuencia del Pod dentro del StatefulSet
+- Cada replica se crear secuencialmente siguiendo el orden de este índice. No se creará un Pod hasta que el previo se haya creado con éxito (este _healthy_ y _available_)
+- Cuando se borra un StatefulSet cada Pod es borrado también en orden (del índice más alto al más bajo)

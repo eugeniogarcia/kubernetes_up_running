@@ -1,0 +1,101 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: mongo
+spec:
+  ports:
+  - port: 27017
+    name: peer
+  clusterIP: None
+  selector:
+    app: mongo
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mongo-init
+data:
+  init.sh: |
+    #!/bin/bash
+
+    # Need to wait for the readiness health check to pass so that the
+    # mongo names resolve. This is kind of wonky.
+    until ping -c 1 ${HOSTNAME}.mongo; do
+      echo "waiting for DNS (${HOSTNAME}.mongo)..."
+      sleep 2
+    done
+
+    until /usr/bin/mongo --eval 'printjson(db.serverStatus())'; do
+      echo "connecting to local mongo..."
+      sleep 2
+    done
+    echo "connected to local."
+
+    HOST=mongo-0.mongo:27017
+
+    until /usr/bin/mongo --host=${HOST} --eval 'printjson(db.serverStatus())'; do
+      echo "connecting to remote mongo..."
+      sleep 2
+    done
+    echo "connected to remote."
+
+    if [[ "${HOSTNAME}" != 'mongo-0' ]]; then
+      until /usr/bin/mongo --host=${HOST} --eval="printjson(rs.status())" \
+            | grep -v "no replset config has been received"; do
+        echo "waiting for replication set initialization"
+        sleep 2
+      done
+      echo "adding self to mongo-0"
+      /usr/bin/mongo --host=${HOST} \
+         --eval="printjson(rs.add('${HOSTNAME}.mongo'))"
+    fi
+
+    if [[ "${HOSTNAME}" == 'mongo-0' ]]; then
+      echo "initializing replica set"
+      /usr/bin/mongo --eval="printjson(rs.initiate(\
+          {'_id': 'rs0', 'members': [{'_id': 0, \
+           'host': 'mongo-0.mongo:27017'}]}))"
+    fi
+    echo "initialized"
+
+    while true; do
+      sleep 3600
+    done
+---
+apiVersion: apps/v1
+kind: StatefulSet # un statefulset es un controlador de Kubernetes que se utiliza para administrar aplicaciones con estado, como bases de datos. Proporciona características como la persistencia de datos y la gestión de réplicas.
+metadata:
+  name: mongo # nombre del StatefulSet
+spec:
+  serviceName: "mongo" # el nombre del servicio que se utilizará para acceder a los pods del StatefulSet. En este caso, se llama "mongo".
+  replicas: 3 # número de réplicas que se desean para el StatefulSet
+  selector:
+    matchLabels:
+      app: mongo # etiquetas que se utilizan para seleccionar los pods que pertenecen a este StatefulSet. En este caso, se seleccionan los pods que tienen la etiqueta "app" con el valor "mongo".
+  template:
+    metadata:
+      labels:
+        app: mongo # etiquetas que se asignan a los pods creados por este StatefulSet. En este caso, se asigna la etiqueta "app" con el valor "mongo".
+    spec:
+      containers:
+      - name: mongodb 
+        image: docker.io/mongo:latest # imagen de Docker que se utilizará para el contenedor. En este caso, se utiliza la imagen oficial de MongoDB con la etiqueta "latest".
+        command:
+        - mongod
+        - --replSet
+        - rs0
+        ports:
+        - containerPort: 27017
+          name: web
+      - name: init-mongo
+        image: docker.io/mongo:latest # imagen de Docker que se utilizará para el contenedor de inicialización. En este caso, se utiliza la imagen oficial de MongoDB con la etiqueta "latest".
+        command:
+        - bash
+        - /config/init.sh
+        volumeMounts: #mapeamos un volumen en el contenedor para que el script de inicialización pueda acceder a él. El script se montará en la ruta /config/init.sh dentro del contenedor.
+        - name: config
+          mountPath: /config
+      volumes:
+      - name: config 
+        configMap: # el volumen se basa en un ConfigMap, que es un objeto de Kubernetes que se utiliza para almacenar datos de configuración. En este caso, se hace referencia a un ConfigMap llamado "mongo-init", que contiene el script de inicialización para MongoDB.
+          name: "mongo-init"

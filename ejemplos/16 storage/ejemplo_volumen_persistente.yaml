@@ -1,0 +1,83 @@
+apiVersion: v1
+kind: PersistentVolume #pv
+metadata:
+  name: database 
+  labels: # selector para identificar el PV
+    volume: my-volume
+spec:
+  accessModes:
+  - ReadWriteMany # tipo de acceso
+  capacity:
+    storage: 1Gi # capacidad de almacenamiento
+  nfs: # en este caso se usa un volumen NFS, pero también se pueden usar otros tipos de volúmenes como EBS, GCE Persistent Disk, etc.
+    server: 192.168.0.1
+    path: "/exports"
+---
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: database
+spec:
+  accessModes:
+  - ReadWriteMany # tipo de acceso que se solicita
+  resources:
+    requests:
+      storage: 1Gi # capacidad de almacenamiento que se solicita
+  selector:
+    matchLabels:
+      volume: my-volume # selector para vincular el PVC con el PV
+---
+apiVersion: apps/v1
+kind: ReplicaSet
+metadata:
+  name: mysql
+  # labels so that we can bind a Service to this Pod
+  labels:
+    app: mysql
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mysql
+  template:
+    metadata:
+      labels:
+        app: mysql
+    spec:
+      containers:
+      - name: database
+        image: mysql
+        resources:
+          requests:
+            cpu: 1
+            memory: 2Gi
+        env:
+        # Environment variables are not a best practice for security,
+        # but we're using them here for brevity in the example.
+        # See Chapter 11 for better options.
+        - name: MYSQL_ROOT_PASSWORD
+          value: some-password-here
+        livenessProbe:
+          tcpSocket:
+            port: 3306
+        ports:
+        - containerPort: 3306
+        volumeMounts:
+          - name: database
+            # /var/lib/mysql is where MySQL stores its databases
+            mountPath: "/var/lib/mysql"
+      volumes: # creamos un volumen usando un PVC
+      - name: database
+        persistentVolumeClaim: # nombre del PVC. El Pod no tiene ni idea de que el almacenamiento es un NFS
+          claimName: database
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mysql
+spec:
+  ports:
+  - port: 3306
+    protocol: TCP
+  selector:
+    app: mysql

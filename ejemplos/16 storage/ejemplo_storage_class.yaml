@@ -1,0 +1,21 @@
+apiVersion: storage.k8s.io/v1
+kind: StorageClass # Clase de almacenamiento
+metadata:
+  name: default
+  annotations:
+    storageclass.kubernetes.io/is-default-class: "true"
+  labels:
+    kubernetes.io/cluster-service: "true"
+provisioner: kubernetes.io/azure-disk # Provisión de almacenamiento en Azure
+---
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: my-claim
+spec:
+  storageClassName: default # nombre de la clase de almacenamiento que se utilizará para esta reclamación
+  accessModes:
+  - ReadWriteOnce # modo de acceso
+  resources:
+    requests:
+      storage: 10Gi # cantidad de almacenamiento solicitada
