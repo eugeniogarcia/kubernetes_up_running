@@ -2765,3 +2765,6 @@ StatefulSets definen un grupo de Pods que se replican, similar a una ReplicaSets
 - Cada replica tiene un hostname predefinido, que se mantiene incluso si el Pod se tiene que recrear. En el hostname se usa un índice que representa la secuencia del Pod dentro del StatefulSet
 - Cada replica se crear secuencialmente siguiendo el orden de este índice. No se creará un Pod hasta que el previo se haya creado con éxito (este _healthy_ y _available_)
 - Cuando se borra un StatefulSet cada Pod es borrado también en orden (del índice más alto al más bajo)
+
+## xxxxxxx
+
