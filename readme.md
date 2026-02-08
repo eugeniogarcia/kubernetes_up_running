@@ -2560,3 +2560,160 @@ kubectl delete -f .\ejemplos.yaml
 
 kubectl delete -f .\rbac.yaml
 ```
+
+## External Services
+
+Cuando se crea un servicio típico de Kubernetes, también se crea una dirección IP, y el servicio DNS de kubernetes se puebla con un registro A que apunta a esa dirección IP (`service-name.namespace.svc.cluster.local` con la IP Virtual).
+
+Cuando creas un servicio de __tipo `ExternalName`__, el servicio DNS de Kubernetes se puebla en su lugar con un registro CNAME que apunta al nombre externo que especificaste (`database.company.com` en este caso; se creará un registro CNAME apuntando `service-name.namespace.svc.cluster.local` a `database.company.com`)
+
+```yaml
+kind: Service
+apiVersion: v1
+metadata:
+  name: external-database
+spec:
+  type: ExternalName
+  externalName: database.company.com
+```
+
+El servicio se considera externo porque **no tiene selector, y por lo tanto no coincidirá con ningún Pod**. Como resultado, **no se crean EndPoints para el servicio**. Cuando accedes a `service-name.namespace.svc.cluster.local` dirigirá la solicitud a `database.company.com`
+
+Sin embargo, a veces no tienes una dirección DNS para un servicio de base de datos externo, solo una dirección IP. En tales casos, aún es posible importar este servicio como un servicio de Kubernetes, pero la operación es un poco diferente. Primero, creas un Service sin selector de etiquetas, pero también __sin el tipo `ExternalName`__ que usamos en el _servicio externo dns_.
+
+El servicio **se considera externo porque no tiene selector, y por lo tanto no coincidirá con ningún Pod**. Como resultado, **no se crean EndPoints para el servicio**. El servicio tendrá la IP Virtual, y como con cualquier servicio, **se creará un registro A en el dns apuntando `service-name.namespace.svc.cluster.local` a la IP Virtual**.
+
+En este caso **tendremos que crear manualmente el recurso EndPoints** —dándole el nombre del servicio, de modo que los dos estén relacionados, Service y EndPoints— e indicando en el recurso EndPoints la IP o IPs del servicio externo.
+
+```yaml
+kind: Service
+apiVersion: v1
+metadata:
+  name: external-ip-database
+spec:
+  ports:
+  - port: 3306
+```
+
+```yaml
+kind: Endpoints
+apiVersion: v1
+metadata:
+  name: external-ip-database
+subsets:
+  - addresses:
+    - ip: 192.168.0.1
+    ports:
+    - port: 3306
+```
+
+- El EndPoint y el Service estan relacionados con el nombre: ambos tienen el mismo nombre. 
+
+- El selector se usa en el Service para identificar los Pods. El Endpoint tendra las IPs de los Pods asociados al service con sus selectores
+
+- Si el Service no tiene un selector no se crean EndPoints. En este ejemplo es el caso puesto que se trata de un servicio externo. El EndPoint lo tenemos que crear manualmente poniendo la ip o ips del servicio externo
+
+En este tipo de servicios externos en los que referenciamos la IP utilizando un EndPoint manualmente, tenemos que asumir la responsabilidad de mantener la IP actualizada.
+
+## Volumenes persistentes
+
+Queremos tener un Pod con un MySQL Server. Necesitamos que la solución sea confiable, de modo que si el Pod falla (liveness probe KO) se cree otra instancia del Pod. La nueva instancia debe utilizar el mismo almacenamiento que usaba la primera.
+
+Creamos varios elementos:
+- `PersistentVolume`. Indicamos que el almacenamiento es un servidor `NFS`, indicamos en que ruta esta, y el tamaño disponible. El `PersistentVolume` tiene definida la etiqueta `volume: my-volume`. 
+
+```yaml
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: database
+  labels:
+    volume: my-volume
+spec:
+  accessModes:
+  - ReadWriteMany
+  capacity:
+    storage: 1Gi
+  nfs:
+    server: 192.168.0.1
+    path: "/exports"
+```
+
+- `PersistentVolumeClaim`. Es el elemento que asociaremos al Pod. Esto introduce una abstracción en el sentido de que a el Pod le resulta transparente la naturaleza del volumen (vendor, tecnología, etc). Con la `PersistentVolumeClaim` estamos solicitando `1Gi` de almacenamiento que permita `ReadWriteMany` a un volumen con etiquetas `volume: my-volume`: 
+
+```yaml
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: database
+spec:
+  accessModes:
+  - ReadWriteMany
+  resources:
+    requests:
+      storage: 1Gi
+  selector:
+    matchLabels:
+      volume: my-volume
+```
+
+- `ReplicaSet`. Creamos un replica set para asegurar que si el Pod muere se cree otro. El número de replicas es 1. En la especificación hacemos referencia `persistentVolumeClaim` con `claimName: database`:
+
+```yaml
+apiVersion: apps/v1
+kind: ReplicaSet
+metadata:
+  name: mysql
+  # labels so that we can bind a Service to this Pod
+  labels:
+    app: mysql
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mysql
+  template:
+    metadata:
+      labels:
+        app: mysql
+    spec:
+      containers:
+      - name: database
+        image: mysql
+        resources:
+          requests:
+            cpu: 1
+            memory: 2Gi
+        env:
+        - name: MYSQL_ROOT_PASSWORD
+          value: some-password-here
+        livenessProbe:
+          tcpSocket:
+            port: 3306
+        ports:
+        - containerPort: 3306
+        volumeMounts:
+          - name: database
+            # /var/lib/mysql is where MySQL stores its databases
+            mountPath: "/var/lib/mysql"
+      volumes:
+      - name: database
+        persistentVolumeClaim:
+          claimName: database
+```
+
+- Creamos un servicio para exponer el MySQL Server:
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: mysql
+spec:
+  ports:
+  - port: 3306
+    protocol: TCP
+  selector:
+    app: mysql
+```
+
