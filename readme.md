@@ -2717,3 +2717,47 @@ spec:
     app: mysql
 ```
 
+## Volumenes Persistentes Dinámicos
+
+La `PersistentVolumeClaim` **ahora no tiene un selector** para identificar el `PersistentVolume` pero **utiliza una anotación**, `volume.beta.kubernetes.io/storage-class`, que hace referencia a la `StorageClass` a utilizar.
+
+```yaml
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: my-claim
+  annotations:
+    volume.beta.kubernetes.io/storage-class: default
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+```
+
+la `StorageClass`:
+
+```yaml
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: default
+  annotations:
+    storageclass.beta.kubernetes.io/is-default-class: "true"
+  labels:
+    kubernetes.io/cluster-service: "true"
+provisioner: kubernetes.io/azure-disk
+```
+
+Las `StorageClass` las crea el administrador del cluster y hacen referencia a clases de almacenamiento típicamente proporcionadas por cloud providers (S3, dynamo, azure-disk, etc).
+
+El Pod seguirá haciendo referencia a la `PersistentVolumeClaim`, y esta solicitará el almacenamiento.
+
+La duración de los Persistent Volumes la fija la _reclamation policy_ del PersistentVolumeClaim, y por defecto coincide con la vida del Pod que crea el volumen. Esto significa que si hacemos un scale down, por ejemplo, también se borra el volumen.
+
+## StatefulSets
+
+Persistent volumes funcionan muy bien para aplicaciones tradicionales, pero si queremos tener alta disponibilidad y persistencia en Kubernetes los StatefulSet funcionan muy bien.
+
+Podemos ver como utilizar StatefulSets con este ejemplo con mongo.
