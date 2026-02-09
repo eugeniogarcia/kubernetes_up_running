@@ -1,0 +1,31 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition # definimos un nuevo recurso a medida
+metadata:
+  name: multiplicadores.gz.com #nombre del recurso, debe ser plural.nombre-del-grupo (en la seccion nombres abajo se indica el valor correspondiente al plural; En la secciñon group abajo se indica el valor correspondiente al grupo)
+spec:
+  group: gz.com # el grupo de la API al que pertenece el recurso, se usará en la URL de la API y en el campo apiVersion de los objetos que creemos de este tipo
+  versions:
+    - name: v1
+      served: true # esta versión del recurso estará disponible en la API
+      storage: true # esta versión se usará para almacenar los datos en etcd
+      schema: # definimos el esquema de validación del recurso usando OpenAPI v3
+        openAPIV3Schema:
+          type: object # el recurso es un objeto JSON
+          properties:
+            spec:
+              type: object
+              properties:
+                replicas: # prpiedad que indica el número de réplicas a crear del multiplicador
+                  type: integer 
+                  minimum: 0
+                multiplicador: # propiedad que indica el factor de multiplicación
+                  type: integer
+      subresources: # habilitamos la subrecurso de estado para poder actualizar el estado del recurso desde el operador
+        status: {}
+  scope: Namespaced # el recurso se crea dentro de un namespace
+  names: # definimos los nombres del recurso para la API
+    plural: multiplicadores # nombre plural del recurso, se usará en la URL de la API
+    singular: multiplicador # nombre singular del recurso, se usará en los comandos kubectl
+    kind: Multiplicador # nombre del tipo de recurso, se usará en el campo kind de los objetos
+    shortNames: # nombres cortos para el recurso, se pueden usar en los comandos kubectl
+      - mult
