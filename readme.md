@@ -2766,5 +2766,18 @@ StatefulSets definen un grupo de Pods que se replican, similar a una ReplicaSets
 - Cada replica se crear secuencialmente siguiendo el orden de este índice. No se creará un Pod hasta que el previo se haya creado con éxito (este _healthy_ y _available_)
 - Cuando se borra un StatefulSet cada Pod es borrado también en orden (del índice más alto al más bajo)
 
-## xxxxxxx
+## Extensión de Kubernetes
+
+Cuando se hace una petición al api server:
+
+![RequestFlow](./imagenes/request.png)
+
+- la peticion se autentica y se verifica que se disponga de los permisos
+- la petición se valida, y si aplica, transforma
+- la petición se registra en el almancenamiento etcd
+
+La validación y transformación se hace con los _admission controllers_, y estos constituyen un primer punto de extensibilidad del kubernetes.
+
+La segunda forma de extensibilidad son los _CustomResourceDefinitions_. Los _CustomResourceDefinitions_ permiten definir nuevos tipos de objetos en el cluster. Estos objetos, como cualquier otro objeto standar se organizan en namespaces, estan sujetos al mismo mecanismo de securización RBAC, y pueden gestionarse con `kubectl` o con la api de Kubernetes.
+
 
