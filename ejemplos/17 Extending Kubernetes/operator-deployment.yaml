@@ -1,25 +1,24 @@
 apiVersion: v1
-kind: ServiceAccount
+kind: ServiceAccount # cuenta que vamos a usar específicamente con el operador
 metadata:
   name: multiplicador-operator
   namespace: default
 
 ---
 apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
+kind: ClusterRole # permisos a nivel de cluster que son necesario para trabajar con el operador
 metadata:
   name: multiplicador-operator
 rules:
-  - apiGroups: ["apps"]
+  - apiGroups: ["apps"] # necesitamos poder trabajar con Deployments. El operador crea un Deployment por cada CR petición que se haga para instanciar un multiplicador
     resources: ["deployments"]
     verbs: ["get","list","watch","create","update","patch","delete"]
-  - apiGroups: [""]
+  - apiGroups: [""] # también necesitamos poder trabajar con Pods, porque el deployment que crea el operador a fin de cuentas esta conformado por Pods, y el operador los necesita para verificar que el número de réplicas en el Deployment se corresponde con el número de réplicas en el CR
     resources: ["pods"]
     verbs: ["get","list","watch"]
-  - apiGroups: ["gz.com"]
+  - apiGroups: ["gz.com"] # finalmente necesitamos permisos para trabajar con el recurso personalizado que hemos creado, porque el operador necesita poder leer los CR para saber qué es lo que tiene que crear, y también necesita poder actualizar el status de los CR para reflejar si el multiplicador es válido o no
     resources: ["multiplicadores"]
     verbs: ["get","list","watch","create","update","patch","delete"]
-
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -28,22 +27,21 @@ metadata:
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: multiplicador-operator
+  name: multiplicador-operator # hacemos referencia al ClusterRole que acabamos de crear
 subjects:
   - kind: ServiceAccount
-    name: multiplicador-operator
+    name: multiplicador-operator # asignamos el role a nuestra cuenta de servicio
     namespace: default
-
 ---
 apiVersion: apps/v1
-kind: Deployment
+kind: Deployment # creamos un deployment para desplegar nuestro operador
 metadata:
   name: multiplicador-operator
   namespace: default
   labels:
-    app: multiplicador-operator
+    app: multiplicador-operator # selector que identifica los pods del deployment
 spec:
-  replicas: 1
+  replicas: 1 # una replica
   selector:
     matchLabels:
       app: multiplicador-operator
@@ -52,13 +50,13 @@ spec:
       labels:
         app: multiplicador-operator
     spec:
-      serviceAccountName: multiplicador-operator
+      serviceAccountName: multiplicador-operator # el contenedor del operador se ejecuta con la cuenta de servicio que hemos definido antes, que tiene los permisos necesarios para trabajar con los recursos que el operador necesita gestionar
       containers:
         - name: operator
-          image: multiplicador-operator:local
+          image: multiplicador-operator:local # la imagen del operador que hemos construido y cargado en el cluster con kind load docker-image
           imagePullPolicy: IfNotPresent
           args: []
-          resources:
+          resources: # recuros asignados y máximos que podrá usar el operador
             limits:
               cpu: "100m"
               memory: "128Mi"
