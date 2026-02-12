@@ -2970,7 +2970,9 @@ kubectl logs deployment/multiplicador-operator -n default
 
 
 
-- repasar el deployment
 - repasar el controlador
-- probar
 - crear un admission control
+- depurar
+- depurar sin tocar la imagen, con un pod
+- depurar codigo js, python
+- test automation
