@@ -53,13 +53,16 @@ spec:
       serviceAccountName: multiplicador-operator # el contenedor del operador se ejecuta con la cuenta de servicio que hemos definido antes, que tiene los permisos necesarios para trabajar con los recursos que el operador necesita gestionar
       containers:
         - name: operator
-          image: multiplicador-operator:local # la imagen del operador que hemos construido y cargado en el cluster con kind load docker-image
-          imagePullPolicy: IfNotPresent
+          image: multiplicador-operator:debug # la imagen del operador que hemos construido y cargado en el cluster con kind load docker-image
+          imagePullPolicy: Always
           args: []
+          ports:
+            - containerPort: 40000
+              protocol: TCP
           resources: # recuros asignados y máximos que podrá usar el operador
             limits:
               cpu: "100m"
-              memory: "128Mi"
+              memory: "256Mi"
             requests:
               cpu: "50m"
-              memory: "64Mi"
+              memory: "128Mi"

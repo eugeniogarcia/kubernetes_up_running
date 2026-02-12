@@ -1,0 +1,22 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Attach to Kubernetes Operator",
+            "type": "go",
+            "request": "attach",
+            "mode": "remote",
+            "port": 40000,
+            "host": "127.0.0.1",
+            "showLog": true,
+            "trace": "verbose",
+            "stopOnEntry": true,
+            "substitutePath": [
+                {
+                    "from": "/src",
+                    "to": "c:/Users/egsma/Downloads/kubernetes_up_running/ejemplos/17 Extending Kubernetes/operator-multiplicador"
+                }
+            ]
+        }
+    ]
+}
