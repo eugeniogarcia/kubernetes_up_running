@@ -2780,4 +2780,197 @@ La validación y transformación se hace con los _admission controllers_, y esto
 
 La segunda forma de extensibilidad son los _CustomResourceDefinitions_. Los _CustomResourceDefinitions_ permiten definir nuevos tipos de objetos en el cluster. Estos objetos, como cualquier otro objeto standar se organizan en namespaces, estan sujetos al mismo mecanismo de securización RBAC, y pueden gestionarse con `kubectl` o con la api de Kubernetes.
 
+### Ejemplo: Operador Multiplicador
 
+Vamos a crear un CustomResource (CRD) llamado `Multiplicador`. Este recurso implementa un ciclo de reconciliación que se encarga de crear objetos con la imagen `docker.io/egsmartin/multiplica:latest`.
+
+#### Aplicamos el CRD
+
+He incluido los comentarios en el propio objeto. Se indica el grupo (`gz.com`) y version (`v1`) en la que se ubica el recurso, así como su nombre (`multiplicador` y `multiplicadores`), como referenciarnos a él con _Kind/kubectl_ y su abreviatura (`Multiplicador` y `mult`):
+
+```yaml
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition # definimos un nuevo recurso a medida
+metadata:
+  name: multiplicadores.gz.com #nombre del recurso, debe ser plural.nombre-del-grupo (en la seccion nombres abajo se indica el valor correspondiente al plural; En la secciñon group abajo se indica el valor correspondiente al grupo)
+spec:
+  group: gz.com # el grupo de la API al que pertenece el recurso, se usará en la URL de la API y en el campo apiVersion de los objetos que creemos de este tipo
+  versions:
+    - name: v1
+      served: true # esta versión del recurso estará disponible en la API
+      storage: true # esta versión se usará para almacenar los datos en etcd
+
+[...]
+
+  scope: Namespaced # el recurso se crea dentro de un namespace
+  names: # definimos los nombres del recurso para la API
+    plural: multiplicadores # nombre plural del recurso, se usará en la URL de la API
+    singular: multiplicador # nombre singular del recurso, se usará en los comandos kubectl
+    kind: Multiplicador # nombre del tipo de recurso, se usará en el campo kind de los objetos
+    shortNames: # nombres cortos para el recurso, se pueden usar en los comandos kubectl
+      - mult
+```
+
+se define el esquema - en formato OpenAPI v3. El esquema tiene dos atributos enteros, `replicas` y `multiplicador`:
+
+```yaml
+      schema: # definimos el esquema de validación del recurso usando OpenAPI v3
+        openAPIV3Schema:
+          type: object # el recurso es un objeto JSON
+          properties:
+            spec:
+              type: object
+              properties:
+                replicas: # prpiedad que indica el número de réplicas a crear del multiplicador
+                  type: integer 
+                  minimum: 0
+                multiplicador: # propiedad que indica el factor de multiplicación
+                  type: integer
+      subresources: # habilitamos la subrecurso de estado para poder actualizar el estado del recurso desde el operador
+        status: {}
+```
+
+creamos el recurso:
+
+```ps
+kubectl apply -f multiplicador-crd.yaml
+```
+
+### Construimos el operador y lo cargamos en el registry local del Cluster
+
+Construimos la imagen del operador:
+
+```ps
+docker build -t multiplicador-operator:local .
+```
+
+cargamos la imagen que hemos crearo dentro del runtime del cluster Kind para que los pods puedan usarla sin necesidad de subirla a un registry. Este comando copia la imagen `multiplicador-operator:local` desde nuestro Docker local a **todos los nodos del cluster Kind** (o al cluster indicado con --name), instalándola en **containerd/CRI del nodo**. Esto hace posible que kubernetes instacie un contenedor con esta imagen. Si cambiamos la imagen tendremos que repetir este comando para volver a cargarla en el cluster:
+
+```ps
+kind load docker-image multiplicador-operator:local --name desktop
+
+Image: "multiplicador-operator:local" with ID "sha256:dd585bded32c1f4ea684805642f1b70c0c6095319bfea3754f9fd345afd729e1" not yet present on node "desktop-worker", loading...
+Image: "multiplicador-operator:local" with ID "sha256:dd585bded32c1f4ea684805642f1b70c0c6095319bfea3754f9fd345afd729e1" not yet present on node "desktop-control-plane", loading...
+```
+
+el parámetro `--name` indica el nombre del cluster en el que se cargará la imagen. El nombre del cluster lo podemos recuperar con `kind get clusters`.
+
+Se podría haber utilizado la imagen como cualquier otra imagen que usamos en un Pod porque a fin de cuentas el operador se despliega como un Deployment.
+
+### Desplegar el operador
+
+```ps
+kubectl apply -f .\operator-deployment.yaml
+```
+
+estamos creando varios objetos. En primer lugar creamos la service account con la que va a ejecutarse el operador, y definimos los roles que son necesarios para que funcione el operador:
+
+```yaml
+apiVersion: v1
+kind: ServiceAccount # cuenta que vamos a usar específicamente con el operador
+metadata:
+  name: multiplicador-operator
+  namespace: default
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole # permisos a nivel de cluster que son necesario para trabajar con el operador
+metadata:
+  name: multiplicador-operator
+rules:
+  - apiGroups: ["apps"] # necesitamos poder trabajar con Deployments. El operador crea un Deployment por cada CR petición que se haga para instanciar un multiplicador
+    resources: ["deployments"]
+    verbs: ["get","list","watch","create","update","patch","delete"]
+  - apiGroups: [""] # también necesitamos poder trabajar con Pods, porque el deployment que crea el operador a fin de cuentas esta conformado por Pods, y el operador los necesita para verificar que el número de réplicas en el Deployment se corresponde con el número de réplicas en el CR
+    resources: ["pods"]
+    verbs: ["get","list","watch"]
+  - apiGroups: ["gz.com"] # finalmente necesitamos permisos para trabajar con el recurso personalizado que hemos creado, porque el operador necesita poder leer los CR para saber qué es lo que tiene que crear, y también necesita poder actualizar el status de los CR para reflejar si el multiplicador es válido o no
+    resources: ["multiplicadores"]
+    verbs: ["get","list","watch","create","update","patch","delete"]
+```
+
+para crear los permisos observamos que especificamos el `apiGroups`, el `resource` y los `verbs`. Podemos ver como hacemos referencia a objetos estandard de kubernetes, y también al objeto custom que hemos creado en el primer punto. Los permisos se definen a nivel de cluster en un `ClusterRole`. Con esto asociamos el rol a la service account:
+
+```yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: multiplicador-operator-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: multiplicador-operator # hacemos referencia al ClusterRole que acabamos de crear
+subjects:
+  - kind: ServiceAccount
+    name: multiplicador-operator # asignamos el role a nuestra cuenta de servicio
+    namespace: default
+```
+
+y ya podemos proceder a crear el deployment:
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment # creamos un deployment para desplegar nuestro operador
+metadata:
+  name: multiplicador-operator
+  namespace: default
+  labels:
+    app: multiplicador-operator # selector que identifica los pods del deployment
+spec:
+  replicas: 1 # una replica
+  selector:
+    matchLabels:
+      app: multiplicador-operator
+  template:
+    metadata:
+      labels:
+        app: multiplicador-operator
+    spec:
+      serviceAccountName: multiplicador-operator # el contenedor del operador se ejecuta con la cuenta de servicio que hemos definido antes, que tiene los permisos necesarios para trabajar con los recursos que el operador necesita gestionar
+      containers:
+        - name: operator
+          image: multiplicador-operator:local # la imagen del operador que hemos construido y cargado en el cluster con kind load docker-image
+          imagePullPolicy: IfNotPresent
+          args: []
+          resources: # recuros asignados y máximos que podrá usar el operador
+            limits:
+              cpu: "100m"
+              memory: "128Mi"
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+```
+
+podemos observar:
+- Se trata de un deployment normal y corriente. Lo hemos creado con una réplica
+- Hemos indicado para el contenedor la imagen del operador que hemos construido anteriormente, y que cargamos en el cluster con `kind load docker-image`
+- Especificamos que el contenedor se ejecute con la service account que hemos creado antes
+- Como a cualquier pod, indicamos los recursos que pueden consumirse
+
+### Lanzamos un ejemplo de multiplicador
+
+Vamos a crear un multiplicador:
+
+```ps
+kubectl apply -f .\multiplicador-ejemplo.yaml
+```
+
+```ps
+kubectl get deployments
+kubectl get pods
+kubectl get mult -A
+kubectl logs deployment/multiplicador-operator -n default
+```
+
+###
+
+- A simple controller (polling reconciler) implemented in Go using the dynamic client and the core clientset.
+- The operator ensures a Deployment exists with `replicas` and `MULTIPLIER` (env) taken from the CR spec.
+- Basic validation: if `spec.multiplier` <= 0 we annotate the CR and skip creating/updating the Deployment.
+
+
+
+
+- repasar el deployment
+- repasar el controlador
+- probar
+- crear un admission control
