@@ -2862,7 +2862,7 @@ Se podría haber utilizado la imagen como cualquier otra imagen que usamos en un
 Para depurar usaremos Delve, el depurardor de GO. Delve hace de proxy entre el programa GO y VSCode. Expone el puerto 40000 y permite la depuración remota del programa. Hemos creado un dockerfile para crear esta imagen `Dockerfile_depura`. Creamos la imagen:
 
 ```ps
-docker build -t multiplicador-operator:debug -f .\Dockerfile_depura .
+docker build -t multiplicador-operator:debug -f .\Dockerfile.depura .
 ```
 
 ```yaml
