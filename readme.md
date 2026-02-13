@@ -2920,6 +2920,30 @@ kind load docker-image --name desktop multiplicador-operator:debug
 
 el deployment lo adecuamos para que use esta imagen: `operator-deployment-depura.yaml`
 
+Podemos hacer las siguientes comprobaciones. La primera que en la carpeta `/src` de la imagen este nuestro fuente:
+
+```ps
+kubectl exec deployment/multiplicador-operator -- ls -la /src/
+```
+
+podemos incluso echar un vistazo al contenido de los archivos, por ejemplo de `main.go`:
+
+```ps
+kubectl exec deployment/multiplicador-operator -- head -20 /src/main.go
+```
+
+podemos comprobar que delve este escuchando efectivamente en el puerto 40000:
+
+```ps
+kubectl logs deployment/multiplicador-operator | findstr "API server"
+```
+
+recordar que tenemos que hacer port-forward al pod:
+
+```ps
+netstat -an | findstr "40000"
+```
+
 ### Desplegar el operador
 
 ```ps
