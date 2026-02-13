@@ -2857,6 +2857,69 @@ el parámetro `--name` indica el nombre del cluster en el que se cargará la ima
 
 Se podría haber utilizado la imagen como cualquier otra imagen que usamos en un Pod porque a fin de cuentas el operador se despliega como un Deployment.
 
+#### Depurar
+
+Para depurar usaremos Delve, el depurardor de GO. Delve hace de proxy entre el programa GO y VSCode. Expone el puerto 40000 y permite la depuración remota del programa. Hemos creado un dockerfile para crear esta imagen `Dockerfile_depura`. Creamos la imagen:
+
+```ps
+docker build -t multiplicador-operator:debug -f .\Dockerfile_depura .
+```
+
+```yaml
+FROM golang:1.25-alpine AS build 
+RUN apk add --no-cache git build-base
+
+# creamos el directorio de trabajo y copiamos el código fuente
+WORKDIR /src
+COPY . .
+
+# instalamos las dependencias
+RUN go mod download  
+
+# instalamos delve para depurar el operador. Instala git y build-base en build (necesario para Delve)
+RUN go install github.com/go-delve/delve/cmd/dlv@latest
+
+# compilamos -gcflags="all=-N -l":
+# -N: Deshabilita optimizaciones, permitiendo que Delve acceda a variables y funciones sin interferencias.
+# -l: Deshabilita inlining (expansión de funciones en línea), lo que facilita el stepping durante el debug.
+RUN go build -gcflags="all=-N -l" -o /out/multiplicador-operator ./
+
+FROM alpine:latest
+
+# instala ca-certificates en runtime (útil para conexiones HTTPS si el operador las usa), y libc6-compat para compatibilidad con binarios compilados en Go (que pueden requerir glibc). Esto es especialmente importante para Delve, que a veces puede requerir librerías de compatibilidad en Alpine.
+RUN apk add --no-cache ca-certificates libc6-compat
+
+# CRÍTICO: Crear el directorio /src y copiar TODO el código fuente para que al depurar desde VSCode se reconozcan los simbolos
+WORKDIR /src
+COPY --from=build /src/ /src/
+
+# Copiar delve y el binario compilado
+COPY --from=build /go/bin/dlv /usr/local/bin/dlv
+COPY --from=build /out/multiplicador-operator /usr/local/bin/multiplicador-operator
+
+# Indicamos explicitamente que el puerto 40000 es el que usaremos para la depuración remota con Delve. Esto es importante para que Docker sepa que este puerto estará en uso y pueda mapearlo correctamente cuando ejecutemos el contenedor.
+EXPOSE 40000
+
+# El ENTRYPOINT inicia Delve en modo headless (--headless=true), escuchando en el puerto 40000 (--listen=:40000), y ejecuta el binario con exec. Esto permite que hagamos conexiones remotas desde VS Code.
+# Ejecutar con API version 2 y accept-multiclient para mejor compatibilidad con VSCode. Con multiclient lo que hacemos es permitir que múltiples sesiones de debug se conecten al mismo contenedor, lo cual es útil si quieres tener varias instancias del operador corriendo o si quieres reconectar sin reiniciar el contenedor.
+ENTRYPOINT ["/usr/local/bin/dlv", \
+    "--listen=:40000", \
+    "--headless=true", \
+    "--api-version=2", \
+    "--accept-multiclient", \
+    "--log", \
+    "exec", \
+    "/usr/local/bin/multiplicador-operator"]
+```
+
+la cargamos en kind:
+
+```ps
+kind load docker-image --name desktop multiplicador-operator:debug
+```
+
+el deployment lo adecuamos para que use esta imagen: `operator-deployment-depura.yaml`
+
 ### Desplegar el operador
 
 ```ps
@@ -2976,3 +3039,36 @@ kubectl logs deployment/multiplicador-operator -n default
 - depurar sin tocar la imagen, con un pod
 - depurar codigo js, python
 - test automation
+
+3. Cómo depurar desde VS Code
+Una vez que el Dockerfile esté listo y la imagen construida/ejecutada, sigue estos pasos para conectar VS Code al contenedor en ejecución. Asumo que tienes la extensión "Go" de Microsoft instalada en VS Code.
+
+Construir y ejecutar el contenedor:
+
+Construye la imagen: docker build -t multiplicador-debug . (desde el directorio del Dockerfile).
+Ejecuta el contenedor mapeando el puerto: docker run -p 40000:40000 multiplicador-debug.
+Esto expone el puerto 40000 del contenedor al host (localhost:40000).
+El contenedor se quedará "colgado" esperando conexiones de debug (debido al ENTRYPOINT con Delve).
+Configurar VS Code para debugging remoto:
+
+Abre main.go en VS Code (tu fuente local debe coincidir con el binario compilado en el contenedor; como usas COPY . ., las rutas relativas deberían alinearse).
+Crea o edita launch.json en la raíz de tu proyecto (el directorio con main.go):
+remotePath: Debe coincidir con el WORKDIR en el Dockerfile (/src). Si tu código está en subdirectorios, ajústalo (e.g., /src/operator-multiplicador).
+Coloca breakpoints en main.go (clic en el margen izquierdo).
+Ejecuta el debug: Ve a la pestaña "Run and Debug" en VS Code, selecciona "Connect to Delve" y presiona play. VS Code se conectará a Delve en el contenedor y podrás depurar como si fuera local (step in/out, inspeccionar variables, etc.).
+Notas importantes:
+
+El fuente en VS Code debe ser idéntico al compilado en el contenedor (incluyendo rutas). Si hay discrepancias, Delve no podrá mapear breakpoints correctamente.
+Si el contenedor corre en Kubernetes (como sugiere el contexto del proyecto), expone el puerto en el Deployment/Pod y configura port-forwarding: kubectl port-forward <pod-name> 40000:40000.
+Si encuentras errores como "connection refused", verifica que el contenedor esté corriendo y el puerto mapeado.
+Para detener el debug, mata el contenedor o usa Ctrl+C en la terminal de VS Code.
+Si aplicas los cambios sugeridos y sigues estos pasos, deberías poder depurar sin problemas. Si encuentras errores específicos (e.g., al construir o conectar), comparte los logs o mensajes de error para ayudarte a depurarlos. ¿Quieres que edite el Dockerfile directamente o te ayude con el launch.json?
+
+
+
+"showLog": true – Muestra logs de Delve en la consola de debug de VS Code. Útil para ver mensajes como "connected" o errores. Correcto, déjalo activado para troubleshooting.
+"trace": "verbose" – Agrega trazas detalladas durante la conexión. Ayuda a diagnosticar problemas (e.g., si la conexión falla). Correcto para debug inicial; puedes quitarlo una vez que funcione.
+"stopOnEntry": true – Detiene la ejecución automáticamente al inicio del programa (en main). Útil para inspeccionar desde el principio. Sugerencia: En un operador como el tuyo (que corre en un loop infinito con ticker), esto detendrá en main() y podrás steppear. Pero si prefieres empezar con breakpoints específicos (e.g., en reconcileAll), cámbialo a false para que no se detenga al attach, y coloca breakpoints manuales en el código.
+"substitutePath": Mapea rutas entre el contenedor y tu máquina local.
+"from": "/src" – Ruta en el contenedor (donde se copió el código).
+"to": "c:/Users/egsma/Downloads/kubernetes_up_running/ejemplos/17 Extending Kubernetes/operator-multiplicador" – Ruta local exacta de tu código (basada en el workspace). Esto asegura que VS Code traduzca correctamente los breakpoints del fuente local al binario remoto. Correcto y preciso.
