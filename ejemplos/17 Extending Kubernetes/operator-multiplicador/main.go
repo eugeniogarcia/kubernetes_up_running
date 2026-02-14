@@ -1,22 +1,5 @@
 package main
 
-// Multiplicador operator (simple polling reconciler)
-//
-// This binary watches custom resources of GroupVersionResource defined by
-// `gvr` (gz.com/v1, resource "multiplicadores"). For each CR it ensures
-// there is a corresponding Deployment named <cr-name>-multiplicador whose
-// replicas and environment variable MULTIPLIER reflect the CR's spec.
-//
-// The implementation used here is intentionally minimal and educational:
-// - It uses a polling loop (reconcileAll invoked periodically) rather than
-//   informers/watch-based controllers.
-// - It uses the dynamic client to read/write unstructured CR objects and the
-//   typed clientset to manage core resources (Deployments).
-//
-// The comments above each function explain its purpose and how it contributes
-// to the reconcile loop and the behavior expected from a Kubernetes controller
-// (owner references, status updates, idempotent reconciliation).
-
 import (
 	"context"
 	"flag"
@@ -41,29 +24,316 @@ import (
 )
 
 var (
+	// referencia a nuestro recurso
 	gvr = schema.GroupVersionResource{Group: "gz.com", Version: "v1", Resource: "multiplicadores"}
 )
 
+// configuracion del cliente rest go
 func buildConfig(kubeconfig string) (*rest.Config, error) {
-	// buildConfig returns a *rest.Config suitable for creating client-go
-	// clients. When running locally you pass `--kubeconfig` to point to your
-	// kubeconfig file; when running in-cluster the function falls back to
-	// InClusterConfig which uses the Pod's ServiceAccount token.
 	if kubeconfig != "" {
 		return clientcmd.BuildConfigFromFlags("", kubeconfig)
 	}
 	return rest.InClusterConfig()
 }
 
-func ensureServiceAndProxy(ctx context.Context, dyn dynamic.Interface, clientset kubernetes.Interface, u *unstructured.Unstructured, deplName, ruta, host string) error {
+// Se necesitan ambos porque el operador debe gestionar tanto recursos core estándar (Deployments, Services)
+// como recursos personalizados definidos por el CRD del operador (Multiplicador).
+//
+// El operador utiliza un enfoque simple de polling-based reconciliation: ejecuta reconcileAll() cada 5 segundos
+// para verificar el estado deseado vs. estado actual. Está diseñado para apagarse ordenadamente ante
+// SIGINT/SIGTERM usando un contexto cancelable.
+func main() {
+	var kubeconfig string
+	flag.StringVar(&kubeconfig, "kubeconfig", "", "absolute path to the kubeconfig file")
+	flag.Parse()
+
+	// obtiene la configuración para crear el cliente...
+	cfg, err := buildConfig(kubeconfig)
+	if err != nil {
+		log.Fatalf("No se pudo construir la configuración kubeconfig: %v", err)
+	}
+
+	// crea un cliente dinámico para interactuar con recursos personalizados (CRs)
+	dyn, err := dynamic.NewForConfig(cfg)
+	if err != nil {
+		log.Fatalf("No se pudo crear el cliente dinámico: %v", err)
+	}
+
+	// crea un clientset tipado para interactuar con recursos core como Deployments y Services
+	clientset, err := kubernetes.NewForConfig(cfg)
+	if err != nil {
+		log.Fatalf("No se pudo crear el clientset: %v", err)
+	}
+
+	log.Println("Arrancado el operador Multiplicador (polling reconciler)")
+
+	// creamos un contexto que permita la cancelación con SIGINT/SIGTERM para que el operador pueda apagarse de manera ordenada.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	// aseguramos que el contexto se cancele y los recursos se limpien al salir
+	defer stop()
+	// un ticker para ejecutar reconcileAll cada 5 segundos
+	ticker := time.NewTicker(5 * time.Second)
+	// aseguramos que el ticker se detenga al salir para liberar recursos
+	defer ticker.Stop()
+
+	// loop infinito de control que implementa el controlador
+	for {
+		if err := reconcileAll(ctx, dyn, clientset); err != nil {
+			log.Printf("error de reconciliación: %v", err)
+		}
+
+		select {
+		case <-ctx.Done(): //se ha abortado la ejecución
+			log.Println("apagando el operador multiplicador")
+			return
+		case <-ticker.C: //tick del reloj
+		}
+	}
+}
+
+func reconcileAll(ctx context.Context, dyn dynamic.Interface, clientset kubernetes.Interface) error {
+	// Lista todos los recursos del namespace, correspondientes al CustomResource que controlamos. Los recursos se identifican de forma univoca con el grupo de api, versión y nombre. Se trata de un recurso custom así que usamos el cliente dinámico
+	list, err := dyn.Resource(gvr).Namespace(metav1.NamespaceAll).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return fmt.Errorf("lista multiplicadores: %w", err)
+	}
+	// recorremos cada uno de los recursos que hemos identificado...
+	for _, item := range list.Items {
+		// hace la reconciliación de ese recurso concreto
+		if err := reconcileOne(ctx, dyn, clientset, &item); err != nil {
+			log.Printf("reconciliar %s/%s falló: %v", item.GetNamespace(), item.GetName(), err)
+		}
+	}
+	return nil
+}
+
+// tenemos como argumento el contexto, la api dinámica para interactuar con el api-server con cursos custom, el cliente para interactuar con recursos estandar, y el recurso que estamos verificano/conciliando
+func reconcileOne(ctx context.Context, dyn dynamic.Interface, clientset kubernetes.Interface, u *unstructured.Unstructured) error {
+	// obtiene el namespace del recurso que estamos reconnciliando
 	ns := u.GetNamespace()
 	if ns == "" {
 		ns = "default"
 	}
+	// obtiene el nombre del recurso que estamos reconnciliando
+	name := u.GetName()
+
+	// Leer replicas deseadas y multiplicador desde `spec` del CR. Se proporcionan valores predeterminados si los campos están ausentes para que el reconciliador sea tolerante con CR mínimos. En un operador de producción, es posible que desees hacer cumplir la validación del esquema a través de un CRD y/o usar tipos más estructurados en lugar de no estructurados, pero aquí lo mantenemos simple y flexible.
+
+	// recupera la propiedad replicas de nuestro custom resource. Esta propiedad se debe mapear al número de replicas del deployment. Sino se especifica se toma 1 por defecto:
+	replicas64, ok := getIntField(u, "spec", "replicas")
+	var replicas int32 = 1
+	if ok {
+		replicas = int32(replicas64)
+	}
+
+	// obtiene la propiedad multiplicador del custom resource. Esta propiedad se debe mapear a la variable de entorno MULTIPLIER del deployment. Sino se especifica se toma 2 por defecto:
+	multiplicador64, ok := getIntField(u, "spec", "multiplicador")
+	var multiplicador int64 = 2
+	if ok {
+		multiplicador = multiplicador64
+	}
+	// obtiene las propiedades ruta y host del recurso a medida
+	ruta, _ := getStringField(u, "spec", "ruta")
+	host, _ := getStringField(u, "spec", "host")
+
+	if multiplicador <= 0 {
+		// indicamos en una anotación el error
+		ann := u.GetAnnotations()
+		if ann == nil {
+			ann = map[string]string{}
+		}
+		ann["multiplicador.gz.com/valid"] = "false"
+		ann["multiplicador.gz.com/error"] = "el multiplicador tiene que ser positivo"
+		u.SetAnnotations(ann)
+
+		// also set status to reflect invalid state
+		if err := unstructured.SetNestedField(u.Object, map[string]interface{}{
+			"valid": false,
+			"error": "el multiplicador tiene que ser positivo",
+		}, "status"); err != nil {
+			log.Printf("warn: set status failed: %v", err)
+		}
+		if _, err := dyn.Resource(gvr).Namespace(ns).UpdateStatus(ctx, u, metav1.UpdateOptions{}); err != nil {
+			// fallback to Update if UpdateStatus not supported by the CRD
+			if _, err2 := dyn.Resource(gvr).Namespace(ns).Update(ctx, u, metav1.UpdateOptions{}); err2 != nil {
+				return err2
+			}
+		}
+		return nil
+	}
+
+	// obtenemos las anotaciones del recurso que estamos reconciliado
+	ann := u.GetAnnotations()
+	if ann == nil {
+		ann = map[string]string{}
+	}
+
+	// añadimos un par de anotaciones al recurso que estamos reconciliando
+	ann["multiplicador.gz.com/valid"] = "true"
+	ann["multiplicador.gz.com/multiplicador"] = fmt.Sprintf("%d", multiplicador)
+	u.SetAnnotations(ann)
+	if _, err := dyn.Resource(gvr).Namespace(ns).Update(ctx, u, metav1.UpdateOptions{}); err != nil {
+		log.Printf("warn: updating annotations failed: %v", err)
+	}
+
+	// determina el nombre del deployment
+	deplName := name + "-multiplicador"
+	// usamos el cliente para interrogar al api server y comprobar el el deployment ya existe o no. Si no existe, lo creamos. Si existe, comprobamos si su estado coincide con el deseado (replicas y variable de entorno) y lo actualizamos si es necesario.
+	existing, err := clientset.AppsV1().Deployments(ns).Get(ctx, deplName, metav1.GetOptions{})
+	// si el deployment no existe, lo creamos
+	if err != nil {
+		// creamos un deployment
+		d := makeDeployment(deplName, ns, replicas, multiplicador)
+		// vamos a establecer una referencia del deployment con el custom resource (CR), de modo que cuando el se elimine se eliminen en cascada todos los recursos asociados (deployment, service, httpproxy). Para eso usamos OwnerReferences, que es un mecanismo de Kubernetes para establecer relaciones de propiedad entre objetos. Al establecer el OwnerReference del deployment apuntando al CR, le indicamos a Kubernetes que el deployment es "propiedad" del CR, y que si el CR se elimina, Kubernetes también eliminará automáticamente el deployment. Esto ayuda a mantener el cluster limpio y evita recursos huérfanos.
+		// obtenermos la referencia al recurso que estamos reconciliando
+		gvk := u.GroupVersionKind()
+		if gvk.Empty() {
+			gvk = schema.GroupVersionKind{Group: gvr.Group, Version: gvr.Version, Kind: "Multiplicador"}
+		}
+		ownerRef := metav1.NewControllerRef(u, gvk)
+		// fija la referencia en el deployment. Esto relaciona a ojos de kubernetes el deployment con el recurso que estamos reconciliando, de modo que si el recurso se elimina, el deployment se eliminará automáticamente.
+		d.ObjectMeta.OwnerReferences = append(d.ObjectMeta.OwnerReferences, *ownerRef)
+
+		// creamos el deployment en el cluster
+		_, err := clientset.AppsV1().Deployments(ns).Create(ctx, d, metav1.CreateOptions{})
+		if err != nil {
+			return fmt.Errorf("create deployment: %w", err)
+		}
+		log.Printf("created Deployment %s/%s (replicas=%d multiplicador=%d)", ns, deplName, replicas, multiplicador)
+
+		// actualizamos el estado del recurso que estamos reconciliando para reflejar que ya hemos creado el deployment y que el recurso está listo. El estado es un subrecurso especial que se utiliza para reflejar el estado actual del recurso, y que suele ser actualizado por el controlador para informar sobre el estado de la aplicación o recurso que está gestionando. En este caso, actualizamos el estado para indicar que el recurso está "ready" (listo) y para reflejar el número de replicas y el multiplicador actual.
+		if err := unstructured.SetNestedField(u.Object, map[string]interface{}{
+			"ready":         true,
+			"replicas":      int64(replicas),
+			"multiplicador": multiplicador,
+		}, "status"); err != nil {
+			log.Printf("aviso: set status fallo: %v", err)
+		} else {
+			if _, err := dyn.Resource(gvr).Namespace(ns).UpdateStatus(ctx, u, metav1.UpdateOptions{}); err != nil {
+				if _, err2 := dyn.Resource(gvr).Namespace(ns).Update(ctx, u, metav1.UpdateOptions{}); err2 != nil {
+					log.Printf("aviso: update status fallback fallo: %v", err2)
+				}
+			}
+		}
+		// nos encargamos de crear el servicio y el HTTPProxy
+		if err := ensureServiceAndProxy(ctx, dyn, clientset, u, deplName, ruta, host); err != nil {
+			return fmt.Errorf("ensure service/proxy: %w", err)
+		}
+		return nil
+	}
+
+	// en este punto ya tenemos los recursos estandar (deployment, service, httpproxy) creados para el custom resource que estamos reconciliando, así que ahora lo que hacemos es verificar si el estado actual de esos recursos coincide con el estado deseado (replicas y multiplicador) y actualizarlos si es necesario. Esto es importante porque el usuario puede modificar el custom resource después de creado, y el operador debe asegurarse de que los recursos asociados se mantengan en el estado correcto según la especificación del custom resource.
+	needUpdate := false
+	if existing.Spec.Replicas == nil || *existing.Spec.Replicas != replicas {
+		existing.Spec.Replicas = &replicas
+		needUpdate = true // hay que actualizar el número de replicas
+	}
+	// ensure OwnerReference exists on existing Deployment
+	gvk := u.GroupVersionKind()
+	if gvk.Empty() {
+		gvk = schema.GroupVersionKind{Group: gvr.Group, Version: gvr.Version, Kind: "Multiplicador"}
+	}
+	desiredOwner := *metav1.NewControllerRef(u, gvk)
+	foundOwner := false
+	for _, or := range existing.ObjectMeta.OwnerReferences {
+		if or.UID == desiredOwner.UID {
+			foundOwner = true
+			break
+		}
+	}
+	if !foundOwner {
+		existing.ObjectMeta.OwnerReferences = append(existing.ObjectMeta.OwnerReferences, desiredOwner)
+		needUpdate = true
+	}
+	if len(existing.Spec.Template.Spec.Containers) > 0 {
+		envs := existing.Spec.Template.Spec.Containers[0].Env
+		found := false
+		for i := range envs {
+			if envs[i].Name == "MULTIPLIER" {
+				if envs[i].Value != fmt.Sprintf("%d", multiplicador) {
+					envs[i].Value = fmt.Sprintf("%d", multiplicador)
+					existing.Spec.Template.Spec.Containers[0].Env = envs
+					needUpdate = true
+				}
+				found = true
+				break
+			}
+		}
+		if !found {
+			existing.Spec.Template.Spec.Containers[0].Env = append(existing.Spec.Template.Spec.Containers[0].Env, corev1.EnvVar{Name: "MULTIPLIER", Value: fmt.Sprintf("%d", multiplicador)})
+			needUpdate = true
+		}
+	}
+
+	// actualizamos el deployment si es necesario
+	if needUpdate {
+		if _, err := clientset.AppsV1().Deployments(ns).Update(ctx, existing, metav1.UpdateOptions{}); err != nil {
+			return fmt.Errorf("update deployment: %w", err)
+		}
+		log.Printf("updated Deployment %s/%s (replicas=%d multiplicador=%d)", ns, deplName, replicas, multiplicador)
+	}
+	// ensure Service and HTTPProxy reflect current desired state
+	if err := ensureServiceAndProxy(ctx, dyn, clientset, u, deplName, ruta, host); err != nil {
+		return fmt.Errorf("ensure service/proxy: %w", err)
+	}
+	// after successful reconciliation, update status
+	if err := unstructured.SetNestedField(u.Object, map[string]interface{}{
+		"ready":         true,
+		"replicas":      int64(replicas),
+		"multiplicador": multiplicador,
+	}, "status"); err != nil {
+		log.Printf("warn: set status failed: %v", err)
+	} else {
+		if _, err := dyn.Resource(gvr).Namespace(ns).UpdateStatus(ctx, u, metav1.UpdateOptions{}); err != nil {
+			if _, err2 := dyn.Resource(gvr).Namespace(ns).Update(ctx, u, metav1.UpdateOptions{}); err2 != nil {
+				log.Printf("warn: update status fallback failed: %v", err2)
+			}
+		}
+	}
+	return nil
+}
+
+func makeDeployment(name, namespace string, replicas int32, multiplicador int64) *appsv1.Deployment {
+
+	// etiquetas que vamos a utilizar. Un par de etiquetas
+	labels := map[string]string{"app": "multiplicador", "multiplicador-name": name}
+
+	// devolvemos la estructura con todos los datos del Deployment que tenemos que crear
+	return &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace, Labels: labels},
+		Spec: appsv1.DeploymentSpec{
+			Replicas: &replicas,
+			Selector: &metav1.LabelSelector{MatchLabels: labels},
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{Labels: labels},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name:  "multiplica",
+							Image: "docker.io/egsmartin/multiplica:latest",
+							Ports: []corev1.ContainerPort{{ContainerPort: 8080}},
+							Env:   []corev1.EnvVar{{Name: "MULTIPLIER", Value: fmt.Sprintf("%d", multiplicador)}},
+							// ReadinessProbe omitted for simplicity in this example
+						},
+					},
+				},
+			},
+		},
+	}
+}
+
+func ensureServiceAndProxy(ctx context.Context, dyn dynamic.Interface, clientset kubernetes.Interface, u *unstructured.Unstructured, deplName, ruta, host string) error {
+	// identifica el namespace del recurso que estamos reconciliando para crear el servicio en el mismo namespace. Si el recurso no tiene namespace, se asume "default"
+	ns := u.GetNamespace()
+	if ns == "" {
+		ns = "default"
+	}
+	// especifica el nombre del servicio basado en el nombre del deployment
 	svcName := deplName + "-svc"
+	// etiquetas que vamos a utilizar. Un par de etiquetas
 	labels := map[string]string{"app": "multiplicador", "multiplicador-name": deplName}
 
-	// Ensure Service
+	// Comprobamos si el servicio ya existe. Si no existe, lo creamos. Si existe, verificamos que su configuración (selector, puertos) y OwnerReference sean correctos y lo actualizamos si es necesario.
 	svc, err := clientset.CoreV1().Services(ns).Get(ctx, svcName, metav1.GetOptions{})
 	if err != nil {
 		s := &corev1.Service{
@@ -73,7 +343,7 @@ func ensureServiceAndProxy(ctx context.Context, dyn dynamic.Interface, clientset
 				Ports:    []corev1.ServicePort{{Port: 8080, TargetPort: intstr.FromInt(8080)}},
 			},
 		}
-		// set ownerref so Service is garbage-collected with the CR
+		// Especificamos que el servicio esta referenciado a un recurso a medida, el que estamos reconciliando, de modo que si el recurso se elimina, el servicio se eliminará automáticamente. Para eso usamos OwnerReferences, que es un mecanismo de Kubernetes para establecer relaciones de propiedad entre objetos. Al establecer el OwnerReference del servicio apuntando al CR, le indicamos a Kubernetes que el servicio es "propiedad" del CR, y que si el CR se elimina, Kubernetes también eliminará automáticamente el servicio. Esto ayuda a mantener el cluster limpio y evita recursos huérfanos.
 		gvk := u.GroupVersionKind()
 		if gvk.Empty() {
 			gvk = schema.GroupVersionKind{Group: gvr.Group, Version: gvr.Version, Kind: "Multiplicador"}
@@ -83,7 +353,6 @@ func ensureServiceAndProxy(ctx context.Context, dyn dynamic.Interface, clientset
 			return fmt.Errorf("create service: %w", err)
 		}
 	} else {
-		// ensure selector/ports and ownerref
 		updated := false
 		if !reflect.DeepEqual(svc.Spec.Selector, labels) {
 			svc.Spec.Selector = labels
@@ -123,16 +392,16 @@ func ensureServiceAndProxy(ctx context.Context, dyn dynamic.Interface, clientset
 	proxyGVR := schema.GroupVersionResource{Group: "projectcontour.io", Version: "v1", Resource: "httpproxies"}
 	// Use CR name as HTTPProxy name (user request)
 	proxyName := u.GetName()
-	svcRef := map[string]interface{}{"name": svcName, "port": int64(8080), "prefixRewrite": "/multiplica"}
+	//aqui
+	//svcRef := map[string]interface{}{"name": svcName, "port": int64(8080), "prefixRewrite": "/multiplica"}
 
-	// Build proxy spec. If host provided, set virtualhost.fqdn
+	// Build proxy spec: single route with prefix /<ruta> and prefixRewrite /multiplica
+	route := map[string]interface{}{
+		"conditions": []interface{}{map[string]interface{}{"prefix": "/" + ruta}},
+		"services":   []interface{}{map[string]interface{}{"name": svcName, "port": int64(8080), "prefixRewrite": "/multiplica"}},
+	}
 	proxySpec := map[string]interface{}{
-		"routes": []interface{}{
-			map[string]interface{}{
-				"conditions": []interface{}{map[string]interface{}{"prefix": "/" + ruta}},
-				"services":   []interface{}{svcRef},
-			},
-		},
+		"routes": []interface{}{route},
 	}
 	if host != "" {
 		proxySpec["virtualhost"] = map[string]interface{}{"fqdn": host}
@@ -192,7 +461,7 @@ func ensureServiceAndProxy(ctx context.Context, dyn dynamic.Interface, clientset
 		updated = true
 	}
 
-	// ensure spec match
+	// Replace existing spec with desired proxySpec if different
 	if !reflect.DeepEqual(existingProxy.Object["spec"], proxySpec) {
 		existingProxy.Object["spec"] = proxySpec
 		updated = true
@@ -204,78 +473,6 @@ func ensureServiceAndProxy(ctx context.Context, dyn dynamic.Interface, clientset
 		}
 	}
 
-	return nil
-}
-
-func main() {
-	var kubeconfig string
-	flag.StringVar(&kubeconfig, "kubeconfig", "", "absolute path to the kubeconfig file")
-	flag.Parse()
-	cfg, err := buildConfig(kubeconfig)
-	if err != nil {
-		log.Fatalf("No se pudo construir la configuración kubeconfig: %v", err)
-	}
-
-	dyn, err := dynamic.NewForConfig(cfg)
-	if err != nil {
-		log.Fatalf("No se pudo crear el cliente dinámico: %v", err)
-	}
-
-	clientset, err := kubernetes.NewForConfig(cfg)
-	if err != nil {
-		log.Fatalf("No se pudo crear el clientset: %v", err)
-	}
-
-	log.Println("Arrancado el operador Multiplicador (polling reconciler)")
-
-	// Crear un contexto cancelable que se cancelará en SIGINT/SIGTERM para que
-	// el operador pueda apagarse de manera ordenada. Usar un ticker evita
-	// dormir dentro de los bucles de reconciliación y hace que el apagado sea
-	// sensible.
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-
-	ticker := time.NewTicker(5 * time.Second)
-	defer ticker.Stop()
-
-	// Bucle principal de control: llamar a reconcileAll periódicamente. Esta es la forma más simple
-	// de un bucle de controlador: se basa en sondeos y, por lo tanto, siempre es
-	// eventualmente consistente, pero no tan eficiente o sensible como un
-	// controlador basado en informadores/vigilancia.
-	for {
-		if err := reconcileAll(ctx, dyn, clientset); err != nil {
-			log.Printf("error de reconciliación: %v", err)
-		}
-
-		select {
-		case <-ctx.Done():
-			log.Println("apagando el operador multiplicador")
-			return
-		case <-ticker.C:
-			// continue to next reconciliation
-		}
-	}
-}
-
-func reconcileAll(ctx context.Context, dyn dynamic.Interface, clientset kubernetes.Interface) error {
-	// reconcileAll lista todos los recursos personalizados del tipo objetivo y llama
-	// reconcileOne para cada uno. En un controlador de producción normalmente
-	// usarías informadores y colas de trabajo para que cada cambio desencadene una reconciliación
-	// para el objeto específico; aquí lo mantenemos simple y hacemos una lista completa
-	// en cada pasada (controlador por sondeo).
-	list, err := dyn.Resource(gvr).Namespace(metav1.NamespaceAll).List(ctx, metav1.ListOptions{})
-	if err != nil {
-		return fmt.Errorf("lista multiplicadores: %w", err)
-	}
-
-	for _, item := range list.Items {
-		// reconcileOne es responsable de hacer que el estado externo (Deployment)
-		// coincida con el estado deseado declarado en el CR. Los errores se registran por
-		// objeto para evitar detener la reconciliación de otros objetos.
-		if err := reconcileOne(ctx, dyn, clientset, &item); err != nil {
-			log.Printf("reconciliar %s/%s falló: %v", item.GetNamespace(), item.GetName(), err)
-		}
-	}
 	return nil
 }
 
@@ -306,203 +503,4 @@ func getStringField(u *unstructured.Unstructured, fields ...string) (string, boo
 		return "", false
 	}
 	return v, true
-}
-
-func reconcileOne(ctx context.Context, dyn dynamic.Interface, clientset kubernetes.Interface, u *unstructured.Unstructured) error {
-	ns := u.GetNamespace()
-	if ns == "" {
-		ns = "default"
-	}
-	name := u.GetName()
-
-	// Leer replicas deseadas y multiplicador desde `spec` del CR. Se proporcionan valores predeterminados si los campos están ausentes para que el reconciliador sea tolerante con CR mínimos. En un operador de producción, es posible que desees hacer cumplir la validación del esquema a través de un CRD y/o usar tipos más estructurados en lugar de no estructurados, pero aquí lo mantenemos simple y flexible.
-	replicas64, ok := getIntField(u, "spec", "replicas")
-	var replicas int32 = 1
-	if ok {
-		replicas = int32(replicas64)
-	}
-	multiplicador64, ok := getIntField(u, "spec", "multiplicador")
-	var multiplicador int64 = 2
-	if ok {
-		multiplicador = multiplicador64
-	}
-	ruta, _ := getStringField(u, "spec", "ruta")
-	host, _ := getStringField(u, "spec", "host")
-
-	if multiplicador <= 0 {
-		// If the CR declares an invalid multiplier we annotate and set a
-		// status to indicate the problem. Note: a production operator would
-		// probably use the CR `status` subresource and more structured
-		// conditions; here we keep it simple.
-		ann := u.GetAnnotations()
-		if ann == nil {
-			ann = map[string]string{}
-		}
-		ann["multiplicador.gz.com/valid"] = "false"
-		ann["multiplicador.gz.com/error"] = "el multiplicador tiene que ser positivo"
-		u.SetAnnotations(ann)
-		// also set status to reflect invalid state
-		if err := unstructured.SetNestedField(u.Object, map[string]interface{}{
-			"valid": false,
-			"error": "el multiplicador tiene que ser positivo",
-		}, "status"); err != nil {
-			log.Printf("warn: set status failed: %v", err)
-		}
-		if _, err := dyn.Resource(gvr).Namespace(ns).UpdateStatus(ctx, u, metav1.UpdateOptions{}); err != nil {
-			// fallback to Update if UpdateStatus not supported by the CRD
-			if _, err2 := dyn.Resource(gvr).Namespace(ns).Update(ctx, u, metav1.UpdateOptions{}); err2 != nil {
-				return err2
-			}
-		}
-		return nil
-	}
-
-	// Mark the CR as valid and record the multiplier used in annotations.
-	// Annotations are easy to inspect but `status` is preferable for machine
-	// readable state; we update both below.
-	ann := u.GetAnnotations()
-	if ann == nil {
-		ann = map[string]string{}
-	}
-	ann["multiplicador.gz.com/valid"] = "true"
-	ann["multiplicador.gz.com/multiplicador"] = fmt.Sprintf("%d", multiplicador)
-	u.SetAnnotations(ann)
-	if _, err := dyn.Resource(gvr).Namespace(ns).Update(ctx, u, metav1.UpdateOptions{}); err != nil {
-		log.Printf("warn: updating annotations failed: %v", err)
-	}
-
-	deplName := name + "-multiplicador"
-	existing, err := clientset.AppsV1().Deployments(ns).Get(ctx, deplName, metav1.GetOptions{})
-	if err != nil {
-		d := makeDeployment(deplName, ns, replicas, multiplicador)
-		// ensure OwnerReference so Deployment is garbage-collected with the CR
-		gvk := u.GroupVersionKind()
-		if gvk.Empty() {
-			gvk = schema.GroupVersionKind{Group: gvr.Group, Version: gvr.Version, Kind: "Multiplicador"}
-		}
-		ownerRef := metav1.NewControllerRef(u, gvk)
-		d.ObjectMeta.OwnerReferences = append(d.ObjectMeta.OwnerReferences, *ownerRef)
-
-		_, err := clientset.AppsV1().Deployments(ns).Create(ctx, d, metav1.CreateOptions{})
-		if err != nil {
-			return fmt.Errorf("create deployment: %w", err)
-		}
-		log.Printf("created Deployment %s/%s (replicas=%d multiplicador=%d)", ns, deplName, replicas, multiplicador)
-		// update status on the CR to reflect created state
-		if err := unstructured.SetNestedField(u.Object, map[string]interface{}{
-			"ready":         true,
-			"replicas":      int64(replicas),
-			"multiplicador": multiplicador,
-		}, "status"); err != nil {
-			log.Printf("aviso: set status fallo: %v", err)
-		} else {
-			if _, err := dyn.Resource(gvr).Namespace(ns).UpdateStatus(ctx, u, metav1.UpdateOptions{}); err != nil {
-				if _, err2 := dyn.Resource(gvr).Namespace(ns).Update(ctx, u, metav1.UpdateOptions{}); err2 != nil {
-					log.Printf("aviso: update status fallback fallo: %v", err2)
-				}
-			}
-		}
-		// ensure Service and HTTPProxy
-		if err := ensureServiceAndProxy(ctx, dyn, clientset, u, deplName, ruta, host); err != nil {
-			return fmt.Errorf("ensure service/proxy: %w", err)
-		}
-		return nil
-	}
-
-	needUpdate := false
-	if existing.Spec.Replicas == nil || *existing.Spec.Replicas != replicas {
-		existing.Spec.Replicas = &replicas
-		needUpdate = true
-	}
-	// ensure OwnerReference exists on existing Deployment
-	gvk := u.GroupVersionKind()
-	if gvk.Empty() {
-		gvk = schema.GroupVersionKind{Group: gvr.Group, Version: gvr.Version, Kind: "Multiplicador"}
-	}
-	desiredOwner := *metav1.NewControllerRef(u, gvk)
-	foundOwner := false
-	for _, or := range existing.ObjectMeta.OwnerReferences {
-		if or.UID == desiredOwner.UID {
-			foundOwner = true
-			break
-		}
-	}
-	if !foundOwner {
-		existing.ObjectMeta.OwnerReferences = append(existing.ObjectMeta.OwnerReferences, desiredOwner)
-		needUpdate = true
-	}
-	if len(existing.Spec.Template.Spec.Containers) > 0 {
-		envs := existing.Spec.Template.Spec.Containers[0].Env
-		found := false
-		for i := range envs {
-			if envs[i].Name == "MULTIPLIER" {
-				if envs[i].Value != fmt.Sprintf("%d", multiplicador) {
-					envs[i].Value = fmt.Sprintf("%d", multiplicador)
-					existing.Spec.Template.Spec.Containers[0].Env = envs
-					needUpdate = true
-				}
-				found = true
-				break
-			}
-		}
-		if !found {
-			existing.Spec.Template.Spec.Containers[0].Env = append(existing.Spec.Template.Spec.Containers[0].Env, corev1.EnvVar{Name: "MULTIPLIER", Value: fmt.Sprintf("%d", multiplicador)})
-			needUpdate = true
-		}
-	}
-
-	if needUpdate {
-		if _, err := clientset.AppsV1().Deployments(ns).Update(ctx, existing, metav1.UpdateOptions{}); err != nil {
-			return fmt.Errorf("update deployment: %w", err)
-		}
-		log.Printf("updated Deployment %s/%s (replicas=%d multiplicador=%d)", ns, deplName, replicas, multiplicador)
-	}
-	// ensure Service and HTTPProxy reflect current desired state
-	if err := ensureServiceAndProxy(ctx, dyn, clientset, u, deplName, ruta, host); err != nil {
-		return fmt.Errorf("ensure service/proxy: %w", err)
-	}
-	// after successful reconciliation, update status
-	if err := unstructured.SetNestedField(u.Object, map[string]interface{}{
-		"ready":         true,
-		"replicas":      int64(replicas),
-		"multiplicador": multiplicador,
-	}, "status"); err != nil {
-		log.Printf("warn: set status failed: %v", err)
-	} else {
-		if _, err := dyn.Resource(gvr).Namespace(ns).UpdateStatus(ctx, u, metav1.UpdateOptions{}); err != nil {
-			if _, err2 := dyn.Resource(gvr).Namespace(ns).Update(ctx, u, metav1.UpdateOptions{}); err2 != nil {
-				log.Printf("warn: update status fallback failed: %v", err2)
-			}
-		}
-	}
-	return nil
-}
-
-func makeDeployment(name, namespace string, replicas int32, multiplicador int64) *appsv1.Deployment {
-	// makeDeployment constructs the Deployment that the operator manages for
-	// each CR. The Deployment is labelled so it can be selected, and it uses
-	// the MULTIPLIER environment variable to pass the CR's multiplier value
-	// into the container.
-	labels := map[string]string{"app": "multiplicador", "multiplicador-name": name}
-	return &appsv1.Deployment{
-		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace, Labels: labels},
-		Spec: appsv1.DeploymentSpec{
-			Replicas: &replicas,
-			Selector: &metav1.LabelSelector{MatchLabels: labels},
-			Template: corev1.PodTemplateSpec{
-				ObjectMeta: metav1.ObjectMeta{Labels: labels},
-				Spec: corev1.PodSpec{
-					Containers: []corev1.Container{
-						{
-							Name:  "multiplica",
-							Image: "docker.io/egsmartin/multiplica:latest",
-							Ports: []corev1.ContainerPort{{ContainerPort: 8080}},
-							Env:   []corev1.EnvVar{{Name: "MULTIPLIER", Value: fmt.Sprintf("%d", multiplicador)}},
-							// ReadinessProbe omitted for simplicity in this example
-						},
-					},
-				},
-			},
-		},
-	}
 }
