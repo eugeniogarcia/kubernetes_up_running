@@ -145,13 +145,61 @@ func ensureServiceAndProxy(ctx context.Context, dyn dynamic.Interface, clientset
 		"spec":       proxySpec,
 	}}
 
-	if _, err := dyn.Resource(proxyGVR).Namespace(ns).Get(ctx, proxyName, metav1.GetOptions{}); err != nil {
+	// Ensure OwnerReference on proxy so it is garbage-collected with the CR
+	gvk := u.GroupVersionKind()
+	if gvk.Empty() {
+		gvk = schema.GroupVersionKind{Group: gvr.Group, Version: gvr.Version, Kind: "Multiplicador"}
+	}
+	ownerRef := metav1.NewControllerRef(u, gvk)
+	ownerMap := map[string]interface{}{
+		"apiVersion": ownerRef.APIVersion,
+		"kind":       ownerRef.Kind,
+		"name":       ownerRef.Name,
+		"uid":        string(ownerRef.UID),
+		"controller": true,
+	}
+
+	// Try to get existing proxy
+	existingProxy, err := dyn.Resource(proxyGVR).Namespace(ns).Get(ctx, proxyName, metav1.GetOptions{})
+	if err != nil {
+		// attach ownerRef to proxy metadata before create
+		meta := proxy.Object["metadata"].(map[string]interface{})
+		meta["ownerReferences"] = []interface{}{ownerMap}
+		proxy.Object["metadata"] = meta
 		if _, err := dyn.Resource(proxyGVR).Namespace(ns).Create(ctx, proxy, metav1.CreateOptions{}); err != nil {
 			return fmt.Errorf("create httpproxy: %w", err)
 		}
-	} else {
-		// update to keep spec in sync
-		if _, err := dyn.Resource(proxyGVR).Namespace(ns).Update(ctx, proxy, metav1.UpdateOptions{}); err != nil {
+		return nil
+	}
+
+	// existing proxy: ensure ownerRef present and spec up-to-date
+	updated := false
+	// ensure ownerRefs
+	meta, _ := existingProxy.Object["metadata"].(map[string]interface{})
+	ors, _ := meta["ownerReferences"].([]interface{})
+	found := false
+	for _, or := range ors {
+		if om, ok := or.(map[string]interface{}); ok {
+			if om["uid"] == string(ownerRef.UID) {
+				found = true
+				break
+			}
+		}
+	}
+	if !found {
+		meta["ownerReferences"] = append(ors, ownerMap)
+		existingProxy.Object["metadata"] = meta
+		updated = true
+	}
+
+	// ensure spec match
+	if !reflect.DeepEqual(existingProxy.Object["spec"], proxySpec) {
+		existingProxy.Object["spec"] = proxySpec
+		updated = true
+	}
+
+	if updated {
+		if _, err := dyn.Resource(proxyGVR).Namespace(ns).Update(ctx, existingProxy, metav1.UpdateOptions{}); err != nil {
 			return fmt.Errorf("update httpproxy: %w", err)
 		}
 	}
