@@ -224,3 +224,21 @@ _, err := clientset.AppsV1().Deployments(ns).Create(ctx, d, metav1.CreateOptions
 ## Crear Servicio y HttpProxy
 
 El Servicio y el HttpProxy se crean con la misma tecnica con la que se creo el Deployment
+
+## Experimento
+
+Creamos todos los recursos con este script:
+
+```ps
+.\ejemplos.ps1
+```
+
+podemos comprobar que si llamamos a `` obtenemos la respuesta de nuestro servicio.
+
+Si hacemos `kubectl apply -f .\multiplicador-ejemplo3.yaml` se incrementará el número de replicas, y cambiará el multiplicador, pasaremos a multiplicar por cuatro.
+
+Borramos todo con:
+
+```ps
+.\borra.ps1
+```

@@ -1,0 +1,10 @@
+apiVersion: gz.com/v1 # el grupo y la versión que hemos definido en el CRD
+kind: Multiplicador # el tipo a medida que hemos definido en el CRD
+metadata:
+  name: ejemplo-mult
+  namespace: default
+spec:
+  replicas: 3 # creamos dos replicas
+  multiplicador: 4 # multiplica por tres
+  ruta: abcd
+  host: gz.com
