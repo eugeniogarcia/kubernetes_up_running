@@ -22,6 +22,8 @@ spec:
                   type: integer
                 ruta: # propiedad que indica la ruta pública expuesta por HTTPProxy
                   type: string
+                host: # virtual host para el HTTPProxy (fqdn)
+                  type: string
       subresources: # habilitamos la subrecurso de estado para poder actualizar el estado del recurso desde el operador
         status: {}
   scope: Namespaced # el recurso se crea dentro de un namespace

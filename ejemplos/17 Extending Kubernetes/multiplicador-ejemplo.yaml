@@ -7,3 +7,4 @@ spec:
   replicas: 2 # creamos dos replicas
   multiplicador: 3 # multiplica por tres
   ruta: abcd
+  host: gz.com

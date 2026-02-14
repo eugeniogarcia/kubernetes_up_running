@@ -55,7 +55,7 @@ func buildConfig(kubeconfig string) (*rest.Config, error) {
 	return rest.InClusterConfig()
 }
 
-func ensureServiceAndProxy(ctx context.Context, dyn dynamic.Interface, clientset kubernetes.Interface, u *unstructured.Unstructured, deplName, ruta string) error {
+func ensureServiceAndProxy(ctx context.Context, dyn dynamic.Interface, clientset kubernetes.Interface, u *unstructured.Unstructured, deplName, ruta, host string) error {
 	ns := u.GetNamespace()
 	if ns == "" {
 		ns = "default"
@@ -121,20 +121,28 @@ func ensureServiceAndProxy(ctx context.Context, dyn dynamic.Interface, clientset
 		return nil
 	}
 	proxyGVR := schema.GroupVersionResource{Group: "projectcontour.io", Version: "v1", Resource: "httpproxies"}
-	proxyName := deplName + "-httpproxy"
+	// Use CR name as HTTPProxy name (user request)
+	proxyName := u.GetName()
 	svcRef := map[string]interface{}{"name": svcName, "port": int64(8080), "prefixRewrite": "/multiplica"}
+
+	// Build proxy spec. If host provided, set virtualhost.fqdn
+	proxySpec := map[string]interface{}{
+		"routes": []interface{}{
+			map[string]interface{}{
+				"conditions": []interface{}{map[string]interface{}{"prefix": "/" + ruta}},
+				"services":   []interface{}{svcRef},
+			},
+		},
+	}
+	if host != "" {
+		proxySpec["virtualhost"] = map[string]interface{}{"fqdn": host}
+	}
+
 	proxy := &unstructured.Unstructured{Object: map[string]interface{}{
 		"apiVersion": "projectcontour.io/v1",
 		"kind":       "HTTPProxy",
 		"metadata":   map[string]interface{}{"name": proxyName, "namespace": ns},
-		"spec": map[string]interface{}{
-			"routes": []interface{}{
-				map[string]interface{}{
-					"conditions": []interface{}{map[string]interface{}{"prefix": "/" + ruta}},
-					"services":   []interface{}{svcRef},
-				},
-			},
-		},
+		"spec":       proxySpec,
 	}}
 
 	if _, err := dyn.Resource(proxyGVR).Namespace(ns).Get(ctx, proxyName, metav1.GetOptions{}); err != nil {
@@ -142,7 +150,7 @@ func ensureServiceAndProxy(ctx context.Context, dyn dynamic.Interface, clientset
 			return fmt.Errorf("create httpproxy: %w", err)
 		}
 	} else {
-		// always attempt update to keep spec in sync
+		// update to keep spec in sync
 		if _, err := dyn.Resource(proxyGVR).Namespace(ns).Update(ctx, proxy, metav1.UpdateOptions{}); err != nil {
 			return fmt.Errorf("update httpproxy: %w", err)
 		}
@@ -271,6 +279,7 @@ func reconcileOne(ctx context.Context, dyn dynamic.Interface, clientset kubernet
 		multiplicador = multiplicador64
 	}
 	ruta, _ := getStringField(u, "spec", "ruta")
+	host, _ := getStringField(u, "spec", "host")
 
 	if multiplicador <= 0 {
 		// If the CR declares an invalid multiplier we annotate and set a
@@ -346,7 +355,7 @@ func reconcileOne(ctx context.Context, dyn dynamic.Interface, clientset kubernet
 			}
 		}
 		// ensure Service and HTTPProxy
-		if err := ensureServiceAndProxy(ctx, dyn, clientset, u, deplName, ruta); err != nil {
+		if err := ensureServiceAndProxy(ctx, dyn, clientset, u, deplName, ruta, host); err != nil {
 			return fmt.Errorf("ensure service/proxy: %w", err)
 		}
 		return nil
@@ -401,7 +410,7 @@ func reconcileOne(ctx context.Context, dyn dynamic.Interface, clientset kubernet
 		log.Printf("updated Deployment %s/%s (replicas=%d multiplicador=%d)", ns, deplName, replicas, multiplicador)
 	}
 	// ensure Service and HTTPProxy reflect current desired state
-	if err := ensureServiceAndProxy(ctx, dyn, clientset, u, deplName, ruta); err != nil {
+	if err := ensureServiceAndProxy(ctx, dyn, clientset, u, deplName, ruta, host); err != nil {
 		return fmt.Errorf("ensure service/proxy: %w", err)
 	}
 	// after successful reconciliation, update status
