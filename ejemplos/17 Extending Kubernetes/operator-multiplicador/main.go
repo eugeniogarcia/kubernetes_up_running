@@ -265,14 +265,14 @@ func reconcileOne(ctx context.Context, dyn dynamic.Interface, clientset kubernet
 	if ok {
 		replicas = int32(replicas64)
 	}
-	multiplier64, ok := getIntField(u, "spec", "multiplier")
-	var multiplier int64 = 2
+	multiplicador64, ok := getIntField(u, "spec", "multiplicador")
+	var multiplicador int64 = 2
 	if ok {
-		multiplier = multiplier64
+		multiplicador = multiplicador64
 	}
 	ruta, _ := getStringField(u, "spec", "ruta")
 
-	if multiplier <= 0 {
+	if multiplicador <= 0 {
 		// If the CR declares an invalid multiplier we annotate and set a
 		// status to indicate the problem. Note: a production operator would
 		// probably use the CR `status` subresource and more structured
@@ -282,12 +282,12 @@ func reconcileOne(ctx context.Context, dyn dynamic.Interface, clientset kubernet
 			ann = map[string]string{}
 		}
 		ann["multiplicador.gz.com/valid"] = "false"
-		ann["multiplicador.gz.com/error"] = "multiplier must be positive integer"
+		ann["multiplicador.gz.com/error"] = "el multiplicador tiene que ser positivo"
 		u.SetAnnotations(ann)
 		// also set status to reflect invalid state
 		if err := unstructured.SetNestedField(u.Object, map[string]interface{}{
 			"valid": false,
-			"error": "multiplier must be positive integer",
+			"error": "el multiplicador tiene que ser positivo",
 		}, "status"); err != nil {
 			log.Printf("warn: set status failed: %v", err)
 		}
@@ -308,7 +308,7 @@ func reconcileOne(ctx context.Context, dyn dynamic.Interface, clientset kubernet
 		ann = map[string]string{}
 	}
 	ann["multiplicador.gz.com/valid"] = "true"
-	ann["multiplicador.gz.com/multiplier"] = fmt.Sprintf("%d", multiplier)
+	ann["multiplicador.gz.com/multiplicador"] = fmt.Sprintf("%d", multiplicador)
 	u.SetAnnotations(ann)
 	if _, err := dyn.Resource(gvr).Namespace(ns).Update(ctx, u, metav1.UpdateOptions{}); err != nil {
 		log.Printf("warn: updating annotations failed: %v", err)
@@ -317,7 +317,7 @@ func reconcileOne(ctx context.Context, dyn dynamic.Interface, clientset kubernet
 	deplName := name + "-multiplicador"
 	existing, err := clientset.AppsV1().Deployments(ns).Get(ctx, deplName, metav1.GetOptions{})
 	if err != nil {
-		d := makeDeployment(deplName, ns, replicas, multiplier)
+		d := makeDeployment(deplName, ns, replicas, multiplicador)
 		// ensure OwnerReference so Deployment is garbage-collected with the CR
 		gvk := u.GroupVersionKind()
 		if gvk.Empty() {
@@ -330,12 +330,12 @@ func reconcileOne(ctx context.Context, dyn dynamic.Interface, clientset kubernet
 		if err != nil {
 			return fmt.Errorf("create deployment: %w", err)
 		}
-		log.Printf("created Deployment %s/%s (replicas=%d multiplier=%d)", ns, deplName, replicas, multiplier)
+		log.Printf("created Deployment %s/%s (replicas=%d multiplicador=%d)", ns, deplName, replicas, multiplicador)
 		// update status on the CR to reflect created state
 		if err := unstructured.SetNestedField(u.Object, map[string]interface{}{
-			"ready":      true,
-			"replicas":   int64(replicas),
-			"multiplier": multiplier,
+			"ready":         true,
+			"replicas":      int64(replicas),
+			"multiplicador": multiplicador,
 		}, "status"); err != nil {
 			log.Printf("aviso: set status fallo: %v", err)
 		} else {
@@ -379,8 +379,8 @@ func reconcileOne(ctx context.Context, dyn dynamic.Interface, clientset kubernet
 		found := false
 		for i := range envs {
 			if envs[i].Name == "MULTIPLIER" {
-				if envs[i].Value != fmt.Sprintf("%d", multiplier) {
-					envs[i].Value = fmt.Sprintf("%d", multiplier)
+				if envs[i].Value != fmt.Sprintf("%d", multiplicador) {
+					envs[i].Value = fmt.Sprintf("%d", multiplicador)
 					existing.Spec.Template.Spec.Containers[0].Env = envs
 					needUpdate = true
 				}
@@ -389,7 +389,7 @@ func reconcileOne(ctx context.Context, dyn dynamic.Interface, clientset kubernet
 			}
 		}
 		if !found {
-			existing.Spec.Template.Spec.Containers[0].Env = append(existing.Spec.Template.Spec.Containers[0].Env, corev1.EnvVar{Name: "MULTIPLIER", Value: fmt.Sprintf("%d", multiplier)})
+			existing.Spec.Template.Spec.Containers[0].Env = append(existing.Spec.Template.Spec.Containers[0].Env, corev1.EnvVar{Name: "MULTIPLIER", Value: fmt.Sprintf("%d", multiplicador)})
 			needUpdate = true
 		}
 	}
@@ -398,7 +398,7 @@ func reconcileOne(ctx context.Context, dyn dynamic.Interface, clientset kubernet
 		if _, err := clientset.AppsV1().Deployments(ns).Update(ctx, existing, metav1.UpdateOptions{}); err != nil {
 			return fmt.Errorf("update deployment: %w", err)
 		}
-		log.Printf("updated Deployment %s/%s (replicas=%d multiplier=%d)", ns, deplName, replicas, multiplier)
+		log.Printf("updated Deployment %s/%s (replicas=%d multiplicador=%d)", ns, deplName, replicas, multiplicador)
 	}
 	// ensure Service and HTTPProxy reflect current desired state
 	if err := ensureServiceAndProxy(ctx, dyn, clientset, u, deplName, ruta); err != nil {
@@ -406,9 +406,9 @@ func reconcileOne(ctx context.Context, dyn dynamic.Interface, clientset kubernet
 	}
 	// after successful reconciliation, update status
 	if err := unstructured.SetNestedField(u.Object, map[string]interface{}{
-		"ready":      true,
-		"replicas":   int64(replicas),
-		"multiplier": multiplier,
+		"ready":         true,
+		"replicas":      int64(replicas),
+		"multiplicador": multiplicador,
 	}, "status"); err != nil {
 		log.Printf("warn: set status failed: %v", err)
 	} else {
@@ -421,7 +421,7 @@ func reconcileOne(ctx context.Context, dyn dynamic.Interface, clientset kubernet
 	return nil
 }
 
-func makeDeployment(name, namespace string, replicas int32, multiplier int64) *appsv1.Deployment {
+func makeDeployment(name, namespace string, replicas int32, multiplicador int64) *appsv1.Deployment {
 	// makeDeployment constructs the Deployment that the operator manages for
 	// each CR. The Deployment is labelled so it can be selected, and it uses
 	// the MULTIPLIER environment variable to pass the CR's multiplier value
@@ -440,7 +440,7 @@ func makeDeployment(name, namespace string, replicas int32, multiplier int64) *a
 							Name:  "multiplica",
 							Image: "docker.io/egsmartin/multiplica:latest",
 							Ports: []corev1.ContainerPort{{ContainerPort: 8080}},
-							Env:   []corev1.EnvVar{{Name: "MULTIPLIER", Value: fmt.Sprintf("%d", multiplier)}},
+							Env:   []corev1.EnvVar{{Name: "MULTIPLIER", Value: fmt.Sprintf("%d", multiplicador)}},
 							// ReadinessProbe omitted for simplicity in this example
 						},
 					},
