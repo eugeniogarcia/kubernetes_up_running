@@ -16,8 +16,14 @@ rules:
   - apiGroups: [""] # también necesitamos poder trabajar con Pods, porque el deployment que crea el operador a fin de cuentas esta conformado por Pods, y el operador los necesita para verificar que el número de réplicas en el Deployment se corresponde con el número de réplicas en el CR
     resources: ["pods"]
     verbs: ["get","list","watch"]
+  - apiGroups: [""]
+    resources: ["services"]
+    verbs: ["get","list","watch","create","update","patch","delete"]
   - apiGroups: ["gz.com"] # finalmente necesitamos permisos para trabajar con el recurso personalizado que hemos creado, porque el operador necesita poder leer los CR para saber qué es lo que tiene que crear, y también necesita poder actualizar el status de los CR para reflejar si el multiplicador es válido o no
     resources: ["multiplicadores"]
+    verbs: ["get","list","watch","create","update","patch","delete"]
+  - apiGroups: ["projectcontour.io"]
+    resources: ["httpproxies"]
     verbs: ["get","list","watch","create","update","patch","delete"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -53,12 +59,9 @@ spec:
       serviceAccountName: multiplicador-operator # el contenedor del operador se ejecuta con la cuenta de servicio que hemos definido antes, que tiene los permisos necesarios para trabajar con los recursos que el operador necesita gestionar
       containers:
         - name: operator
-          image: multiplicador-operator:debug # la imagen del operador que hemos construido y cargado en el cluster con kind load docker-image
+          image: multiplicador-operator:local # la imagen del operador que hemos construido y cargado en el cluster con kind load docker-image
           imagePullPolicy: Always
           args: []
-          ports:
-            - containerPort: 40000
-              protocol: TCP
           resources: # recuros asignados y máximos que podrá usar el operador
             limits:
               cpu: "100m"

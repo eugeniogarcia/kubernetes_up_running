@@ -24,6 +24,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"reflect"
 	"syscall"
 	"time"
 
@@ -32,6 +33,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -51,6 +53,102 @@ func buildConfig(kubeconfig string) (*rest.Config, error) {
 		return clientcmd.BuildConfigFromFlags("", kubeconfig)
 	}
 	return rest.InClusterConfig()
+}
+
+func ensureServiceAndProxy(ctx context.Context, dyn dynamic.Interface, clientset kubernetes.Interface, u *unstructured.Unstructured, deplName, ruta string) error {
+	ns := u.GetNamespace()
+	if ns == "" {
+		ns = "default"
+	}
+	svcName := deplName + "-svc"
+	labels := map[string]string{"app": "multiplicador", "multiplicador-name": deplName}
+
+	// Ensure Service
+	svc, err := clientset.CoreV1().Services(ns).Get(ctx, svcName, metav1.GetOptions{})
+	if err != nil {
+		s := &corev1.Service{
+			ObjectMeta: metav1.ObjectMeta{Name: svcName, Namespace: ns, Labels: labels},
+			Spec: corev1.ServiceSpec{
+				Selector: labels,
+				Ports:    []corev1.ServicePort{{Port: 8080, TargetPort: intstr.FromInt(8080)}},
+			},
+		}
+		// set ownerref so Service is garbage-collected with the CR
+		gvk := u.GroupVersionKind()
+		if gvk.Empty() {
+			gvk = schema.GroupVersionKind{Group: gvr.Group, Version: gvr.Version, Kind: "Multiplicador"}
+		}
+		s.ObjectMeta.OwnerReferences = append(s.ObjectMeta.OwnerReferences, *metav1.NewControllerRef(u, gvk))
+		if _, err := clientset.CoreV1().Services(ns).Create(ctx, s, metav1.CreateOptions{}); err != nil {
+			return fmt.Errorf("create service: %w", err)
+		}
+	} else {
+		// ensure selector/ports and ownerref
+		updated := false
+		if !reflect.DeepEqual(svc.Spec.Selector, labels) {
+			svc.Spec.Selector = labels
+			updated = true
+		}
+		if len(svc.Spec.Ports) == 0 || svc.Spec.Ports[0].Port != 8080 {
+			svc.Spec.Ports = []corev1.ServicePort{{Port: 8080, TargetPort: intstr.FromInt(8080)}}
+			updated = true
+		}
+		gvk := u.GroupVersionKind()
+		if gvk.Empty() {
+			gvk = schema.GroupVersionKind{Group: gvr.Group, Version: gvr.Version, Kind: "Multiplicador"}
+		}
+		desiredOwner := *metav1.NewControllerRef(u, gvk)
+		found := false
+		for _, or := range svc.ObjectMeta.OwnerReferences {
+			if or.UID == desiredOwner.UID {
+				found = true
+				break
+			}
+		}
+		if !found {
+			svc.ObjectMeta.OwnerReferences = append(svc.ObjectMeta.OwnerReferences, desiredOwner)
+			updated = true
+		}
+		if updated {
+			if _, err := clientset.CoreV1().Services(ns).Update(ctx, svc, metav1.UpdateOptions{}); err != nil {
+				return fmt.Errorf("update service: %w", err)
+			}
+		}
+	}
+
+	// Ensure HTTPProxy (Contour) if ruta provided
+	if ruta == "" {
+		return nil
+	}
+	proxyGVR := schema.GroupVersionResource{Group: "projectcontour.io", Version: "v1", Resource: "httpproxies"}
+	proxyName := deplName + "-httpproxy"
+	svcRef := map[string]interface{}{"name": svcName, "port": int64(8080), "prefixRewrite": "/multiplica"}
+	proxy := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "projectcontour.io/v1",
+		"kind":       "HTTPProxy",
+		"metadata":   map[string]interface{}{"name": proxyName, "namespace": ns},
+		"spec": map[string]interface{}{
+			"routes": []interface{}{
+				map[string]interface{}{
+					"conditions": []interface{}{map[string]interface{}{"prefix": "/" + ruta}},
+					"services":   []interface{}{svcRef},
+				},
+			},
+		},
+	}}
+
+	if _, err := dyn.Resource(proxyGVR).Namespace(ns).Get(ctx, proxyName, metav1.GetOptions{}); err != nil {
+		if _, err := dyn.Resource(proxyGVR).Namespace(ns).Create(ctx, proxy, metav1.CreateOptions{}); err != nil {
+			return fmt.Errorf("create httpproxy: %w", err)
+		}
+	} else {
+		// always attempt update to keep spec in sync
+		if _, err := dyn.Resource(proxyGVR).Namespace(ns).Update(ctx, proxy, metav1.UpdateOptions{}); err != nil {
+			return fmt.Errorf("update httpproxy: %w", err)
+		}
+	}
+
+	return nil
 }
 
 func main() {
@@ -146,6 +244,14 @@ func getIntField(u *unstructured.Unstructured, fields ...string) (int64, bool) {
 	}
 }
 
+func getStringField(u *unstructured.Unstructured, fields ...string) (string, bool) {
+	v, found, _ := unstructured.NestedString(u.Object, fields...)
+	if !found {
+		return "", false
+	}
+	return v, true
+}
+
 func reconcileOne(ctx context.Context, dyn dynamic.Interface, clientset kubernetes.Interface, u *unstructured.Unstructured) error {
 	ns := u.GetNamespace()
 	if ns == "" {
@@ -164,6 +270,7 @@ func reconcileOne(ctx context.Context, dyn dynamic.Interface, clientset kubernet
 	if ok {
 		multiplier = multiplier64
 	}
+	ruta, _ := getStringField(u, "spec", "ruta")
 
 	if multiplier <= 0 {
 		// If the CR declares an invalid multiplier we annotate and set a
@@ -238,6 +345,10 @@ func reconcileOne(ctx context.Context, dyn dynamic.Interface, clientset kubernet
 				}
 			}
 		}
+		// ensure Service and HTTPProxy
+		if err := ensureServiceAndProxy(ctx, dyn, clientset, u, deplName, ruta); err != nil {
+			return fmt.Errorf("ensure service/proxy: %w", err)
+		}
 		return nil
 	}
 
@@ -288,6 +399,10 @@ func reconcileOne(ctx context.Context, dyn dynamic.Interface, clientset kubernet
 			return fmt.Errorf("update deployment: %w", err)
 		}
 		log.Printf("updated Deployment %s/%s (replicas=%d multiplier=%d)", ns, deplName, replicas, multiplier)
+	}
+	// ensure Service and HTTPProxy reflect current desired state
+	if err := ensureServiceAndProxy(ctx, dyn, clientset, u, deplName, ruta); err != nil {
+		return fmt.Errorf("ensure service/proxy: %w", err)
 	}
 	// after successful reconciliation, update status
 	if err := unstructured.SetNestedField(u.Object, map[string]interface{}{
