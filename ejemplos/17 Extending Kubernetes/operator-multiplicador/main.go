@@ -392,13 +392,12 @@ func ensureServiceAndProxy(ctx context.Context, dyn dynamic.Interface, clientset
 	proxyGVR := schema.GroupVersionResource{Group: "projectcontour.io", Version: "v1", Resource: "httpproxies"}
 	// Use CR name as HTTPProxy name (user request)
 	proxyName := u.GetName()
-	//aqui
-	//svcRef := map[string]interface{}{"name": svcName, "port": int64(8080), "prefixRewrite": "/multiplica"}
 
-	// Build proxy spec: single route with prefix /<ruta> and prefixRewrite /multiplica
+	// Especifica del httpproxy
 	route := map[string]interface{}{
-		"conditions": []interface{}{map[string]interface{}{"prefix": "/" + ruta}},
-		"services":   []interface{}{map[string]interface{}{"name": svcName, "port": int64(8080), "prefixRewrite": "/multiplica"}},
+		"conditions":        []interface{}{map[string]interface{}{"prefix": "/" + ruta}},
+		"services":          []interface{}{map[string]interface{}{"name": svcName, "port": int64(8080)}},
+		"pathRewritePolicy": map[string]interface{}{"replacePrefix": []interface{}{map[string]interface{}{"replacement": "/multiplica"}}},
 	}
 	proxySpec := map[string]interface{}{
 		"routes": []interface{}{route},
