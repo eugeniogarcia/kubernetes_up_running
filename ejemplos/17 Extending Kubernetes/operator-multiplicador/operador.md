@@ -353,3 +353,43 @@ ENTRYPOINT ["/usr/local/bin/dlv",
 "--continue", # Delve arranca el operador
 "--log"]
 ```
+
+### VSCode
+
+Para fijar breakpoints y depurar utilizando VS Code, hay que preparar el `launch.json`:
+
+```json
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Attach to Kubernetes Operator",
+            "type": "go",
+            "request": "attach",
+            "mode": "remote",
+            "port": 40000,
+            "host": "127.0.0.1",
+            "showLog": true,
+            "trace": "verbose",
+            "stopOnEntry": true,
+            "substitutePath": [
+            {
+            "from": "${workspaceFolder}",
+            "to": "/src"                    
+            }
+            ]
+        }
+    ]
+}
+```
+
+destacar que se hace un attach al puerto 40000 donde tenemos Delve escuchando. Como cuando se compilo el fuente en la imagen la estructura era otra (el raíz era `/src`), y en la maquina windows la raiz es nuestro workspace, hay que incluir:
+
+```json
+{
+	"from": "${workspaceFolder}",
+	"to": "/src"                    
+}
+```
+
+con esto ya podemos fijar breakpoints
