@@ -242,3 +242,114 @@ Borramos todo con:
 ```ps
 .\borra.ps1
 ```
+
+## Depura
+
+Para depurar vamos a utilizar delve, el depurador de go. Usaremos Delve para que haga de proxy. Delve expone un puerto remoto por el que nos conectaremos para acceder al operador.
+
+Creamos un `Dockerfile.depura` para crear la imagen con Delve. Los puntos más destacados de este dockerfile son:
+
+- Se instala Delve en la imagen de construcción
+- Se compila el programa go con una serie de flags asociadas a Delve (deshabilita optimizaciones del compilador de go, y la creación de funciones inline - por parte del compilador)
+- En la imagen final se copia el ejecutable del operador y el ejecutable de Delve
+- El entrypoin ya no es el operador, sera Delve
+- Delve está escuchando en el puerto 40000
+
+aqui tenemos el dockerfile:
+
+```yaml
+#*************************************************************
+#*************************************************************
+# usamos una imagen base de Go para compilar el operador
+#*************************************************************
+#*************************************************************
+FROM golang:1.25-alpine AS build 
+RUN apk add --no-cache git build-base
+
+# creamos el directorio de trabajo y copiamos el código fuente
+WORKDIR /src
+COPY go.mod go.sum ./
+# instalamos las dependencias
+RUN go mod download
+COPY . .
+
+# instalamos delve para depurar el operador. Instala git y build-base en build (necesario para Delve)
+RUN CGO_ENABLED=0 go install github.com/go-delve/delve/cmd/dlv@latest
+ 
+# compilamos -gcflags="all=-N -l":
+# -N: Deshabilita optimizaciones, permitiendo que Delve acceda a variables y funciones sin interferencias.
+# -l: Deshabilita inlining (expansión de funciones en línea), lo que facilita el stepping durante el debug.
+RUN CGO_ENABLED=0 GOOS=linux go build -gcflags "all=-N -l" -o /out/multiplicador-operator ./
+
+#*************************************************************
+#*************************************************************
+# creamos la imagen final basada en Alpine para ejecutar el operador
+#*************************************************************
+#*************************************************************
+FROM alpine:latest
+
+# instala ca-certificates en runtime (útil para conexiones HTTPS si el operador las usa), y libc6-compat para compatibilidad con binarios compilados en Go (que pueden requerir glibc). Esto es especialmente importante para Delve, que a veces puede requerir librerías de compatibilidad en Alpine.
+RUN apk add --no-cache ca-certificates libc6-compat
+
+# CRÍTICO: Crear el directorio /src y copiar TODO el código fuente para que al depurar desde VSCode se reconozcan los simbolos
+WORKDIR /src
+COPY --from=build /src/ /src/
+
+# Copiar delve y el binario compilado
+COPY --from=build /go/bin/dlv /usr/local/bin/dlv
+COPY --from=build /out/multiplicador-operator /usr/local/bin/multiplicador-operator
+RUN chmod +x /usr/local/bin/multiplicador-operator /usr/local/bin/dlv
+
+# Indicamos explicitamente que el puerto 40000 es el que usaremos para la depuración remota con Delve. Esto es importante para que Docker sepa que este puerto estará en uso y pueda mapearlo correctamente cuando ejecutemos el contenedor.
+EXPOSE 40000
+
+# El ENTRYPOINT inicia Delve en modo headless (--headless=true), escuchando en el puerto 40000 (--listen=:40000), y ejecuta el binario con exec. Esto permite que hagamos conexiones remotas desde VS Code.
+# Ejecutar con API version 2 y accept-multiclient para mejor compatibilidad con VSCode. Con multiclient lo que hacemos es permitir que múltiples sesiones de debug se conecten al mismo contenedor, lo cual es útil si quieres tener varias instancias del operador corriendo o si quieres reconectar sin reiniciar el contenedor.
+ENTRYPOINT ["/usr/local/bin/dlv", \
+    "exec", \
+    "/usr/local/bin/multiplicador-operator", \
+    "--headless=true", \
+    "--listen=:40000", \
+    "--api-version=2", \
+    "--accept-multiclient", \
+    "--log"]
+```
+
+compilamos y cargamos esta imagen como hicimos antes:
+
+```ps
+docker build -t multiplicador-operator:debug -f .\Dockerfile.depura .
+
+kind load docker-image multiplicador-operator:debug --name desktop
+```
+
+Desplegamos esa imagen. He creado un script, `.\ejemplos-debug.ps1` para automatizar el despliegue. Destacar que cuando desplegamos el operador no se ejecuta, se ejecuta Delve, . Tendremos que hacer un port-forwarding para llegar a Delve:
+
+```ps
+kubectl port-forward deployment/multiplicador-operator 40000:40000 -n default
+```
+a continuación nos podemos conectar con delve, y arrancar la ejecución - hasta el primer breakpoint:
+
+```ps
+dlv connect localhost:40000
+```
+
+lanzamos el comando delve _continue_:
+
+```ps
+(dlv) continue
+```
+
+Podemos hacer que Delve arranque por defecto el operador, incluyendo la opción en el _ENTRYPOINT_ del Dockerfile:
+ 
+```yaml
+ENTRYPOINT ["/usr/local/bin/dlv",
+"exec",
+"/usr/local/bin/multiplicador-operator",
+"--headless=true",
+"--listen=:40000",
+"--api-version=2",
+"--accept-multiclient",
+"--continue", # Delve arranca el operador
+"--log"]
+```
