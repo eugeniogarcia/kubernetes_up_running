@@ -434,3 +434,43 @@ con esto ya podemos fijar breakpoints
 
 Vamos a evolucionar el operador para que el ciclo de reconciliación en lugar de ser un loop infinito que haga pooling cada cinco segundos para interrogar al api-server cuales son los custom resources que tiene registrados y cual es su estado deseado frente al real - y hacer los ajuste correspondientes -, nos subscribiremos a eventos que el api-server publicará. La lógica de reconciliación es la misma que usabamos hasta ahora, solo que el trigger que la dispara será un evento - publicado por el apo server.
 
+Se define una cola para guardar los items que deben ser procesados:
+
+```go
+// Cola en la que guardamos los items a procesar
+queue := workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "multiplicadores")
+defer queue.ShutDown()
+```
+
+tenemos dos factorias una para observar objetos a medida y otra para observar recursos estandard:
+
+```go
+// Factoria para observar recursos personalizados
+dynFactory := dynamicinformer.NewFilteredDynamicSharedInformerFactory(dyn, 0, metav1.NamespaceAll, nil)
+crInformer := dynFactory.ForResource(gvr).Informer()
+
+// Factoria para observar recursos estandar de kubernetes
+typedFactory := informers.NewSharedInformerFactory(clientset, 0)
+deployInformer := typedFactory.Apps().V1().Deployments().Informer()
+```
+
+Lo que hacen en esencia es registrar cada evento que reciben en la cola para su procesamiento asíncrono. Se arrancan factorias para recibir los eventos del api-server:
+
+```go
+// Arrancamos las factorias para recibir los eventos
+dynFactory.Start(ctx.Done())
+typedFactory.Start(ctx.Done())
+```
+
+el tratamiento de los intems en las colas se hace con dos gorutinas:
+
+```go
+// lanzamos dos gorutinas
+workerCount := 2
+for i := 0; i < workerCount; i++ {
+	go func() {
+		for processNextItem() {
+		}
+	}()
+}
+```

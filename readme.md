@@ -3033,66 +3033,20 @@ podemos observar:
 - Especificamos que el contenedor se ejecute con la service account que hemos creado antes
 - Como a cualquier pod, indicamos los recursos que pueden consumirse
 
-### Lanzamos un ejemplo de multiplicador
+### Descripción del Operador
 
-Vamos a crear un multiplicador:
+En [este documento](./ejemplos/17%20Extending%20Kubernetes/operator-multiplicador/operador.md) se describe el operador, como funciona, como se construye, despliega y depura.
 
-```ps
-kubectl apply -f .\multiplicador-ejemplo.yaml
-```
+## Securizar Aplicaciones
 
-```ps
-kubectl get deployments
-kubectl get pods
-kubectl get mult -A
-kubectl logs deployment/multiplicador-operator -n default
-```
+Veremos varias capacidades relacionadas con seguridad
 
-###
+- **SecurityContext**. Spec que incluimos en un pod y/o contenedores para definir restricciones relativas a seguridad (user id, group id, scalation, etc)
 
-- A simple controller (polling reconciler) implemented in Go using the dynamic client and the core clientset.
-- The operator ensures a Deployment exists with `replicas` and `MULTIPLIER` (env) taken from the CR spec.
-- Basic validation: if `spec.multiplier` <= 0 we annotate the CR and skip creating/updating the Deployment.
+- **Pod Security**. Esta feature sutituye las antiguas SecurityPolicy. SecurityPolicy nos permite Validar y Mutar especificaciones de pods. Pod Security solo incluye validacion. La Security Policy se define con un objeto que se aplica a nivel de namespace. Kubernetes define tres niveles de privilegios (baseline, restricted, privileged), que pueden aplicarse (enforce, warn, audit). Cuando se solicita al cluster de kubernetes crear un Pod, antes de que la petición se envie el API Server, y después de la autenticación/autorización, se aplican las validaciones definidas en las Security Policies.
 
+- **ServiceAccount**. Podemos aplicar rbac para controlar que recursos pueden usarse con un pod en base a la service account asociada al pod
 
+- **NetworkPolicy**. Podemos definir políticas de ingres y/o egresa que asociamos a poda utilizando los selectores de etiquetas. Aquí egress e ingresa se refieren a comunicaciones desde y hacia un pod. Estas policies por si solas no hacen nada, se necesita un controlador que hay que instalar, tipo Cilium, qué interpret y aplique las politicas
 
-
-- repasar el controlador
-- crear un admission control
-- depurar
-- depurar sin tocar la imagen, con un pod
-- depurar codigo js, python
-- test automation
-
-3. Cómo depurar desde VS Code
-Una vez que el Dockerfile esté listo y la imagen construida/ejecutada, sigue estos pasos para conectar VS Code al contenedor en ejecución. Asumo que tienes la extensión "Go" de Microsoft instalada en VS Code.
-
-Construir y ejecutar el contenedor:
-
-Construye la imagen: docker build -t multiplicador-debug . (desde el directorio del Dockerfile).
-Ejecuta el contenedor mapeando el puerto: docker run -p 40000:40000 multiplicador-debug.
-Esto expone el puerto 40000 del contenedor al host (localhost:40000).
-El contenedor se quedará "colgado" esperando conexiones de debug (debido al ENTRYPOINT con Delve).
-Configurar VS Code para debugging remoto:
-
-Abre main.go en VS Code (tu fuente local debe coincidir con el binario compilado en el contenedor; como usas COPY . ., las rutas relativas deberían alinearse).
-Crea o edita launch.json en la raíz de tu proyecto (el directorio con main.go):
-remotePath: Debe coincidir con el WORKDIR en el Dockerfile (/src). Si tu código está en subdirectorios, ajústalo (e.g., /src/operator-multiplicador).
-Coloca breakpoints en main.go (clic en el margen izquierdo).
-Ejecuta el debug: Ve a la pestaña "Run and Debug" en VS Code, selecciona "Connect to Delve" y presiona play. VS Code se conectará a Delve en el contenedor y podrás depurar como si fuera local (step in/out, inspeccionar variables, etc.).
-Notas importantes:
-
-El fuente en VS Code debe ser idéntico al compilado en el contenedor (incluyendo rutas). Si hay discrepancias, Delve no podrá mapear breakpoints correctamente.
-Si el contenedor corre en Kubernetes (como sugiere el contexto del proyecto), expone el puerto en el Deployment/Pod y configura port-forwarding: kubectl port-forward <pod-name> 40000:40000.
-Si encuentras errores como "connection refused", verifica que el contenedor esté corriendo y el puerto mapeado.
-Para detener el debug, mata el contenedor o usa Ctrl+C en la terminal de VS Code.
-Si aplicas los cambios sugeridos y sigues estos pasos, deberías poder depurar sin problemas. Si encuentras errores específicos (e.g., al construir o conectar), comparte los logs o mensajes de error para ayudarte a depurarlos. ¿Quieres que edite el Dockerfile directamente o te ayude con el launch.json?
-
-
-
-"showLog": true – Muestra logs de Delve en la consola de debug de VS Code. Útil para ver mensajes como "connected" o errores. Correcto, déjalo activado para troubleshooting.
-"trace": "verbose" – Agrega trazas detalladas durante la conexión. Ayuda a diagnosticar problemas (e.g., si la conexión falla). Correcto para debug inicial; puedes quitarlo una vez que funcione.
-"stopOnEntry": true – Detiene la ejecución automáticamente al inicio del programa (en main). Útil para inspeccionar desde el principio. Sugerencia: En un operador como el tuyo (que corre en un loop infinito con ticker), esto detendrá en main() y podrás steppear. Pero si prefieres empezar con breakpoints específicos (e.g., en reconcileAll), cámbialo a false para que no se detenga al attach, y coloca breakpoints manuales en el código.
-"substitutePath": Mapea rutas entre el contenedor y tu máquina local.
-"from": "/src" – Ruta en el contenedor (donde se copió el código).
-"to": "c:/Users/egsma/Downloads/kubernetes_up_running/ejemplos/17 Extending Kubernetes/operator-multiplicador" – Ruta local exacta de tu código (basada en el workspace). Esto asegura que VS Code traduzca correctamente los breakpoints del fuente local al binario remoto. Correcto y preciso.
+- **Rutime Class**. Se dispone de una o varias clases rutime que el administrador ha instalado. Se pueden usar etiquetas para vincular ciertas clases solo con ciertos nodos. En el pod podemos especificar el runtime. El efecto que tiene esto es que el pod se ejecute con un tipo de sandbox u otro (con más o menos restricciones)

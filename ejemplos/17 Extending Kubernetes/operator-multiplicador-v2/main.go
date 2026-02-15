@@ -41,12 +41,10 @@ func buildConfig(kubeconfig string) (*rest.Config, error) {
 	return rest.InClusterConfig()
 }
 
-// Se necesitan ambos porque el operador debe gestionar tanto recursos core estándar (Deployments, Services)
-// como recursos personalizados definidos por el CRD del operador (Multiplicador).
-//
-// El operador utiliza un enfoque simple de polling-based reconciliation: ejecuta reconcileAll() cada 5 segundos
-// para verificar el estado deseado vs. estado actual. Está diseñado para apagarse ordenadamente ante
-// SIGINT/SIGTERM usando un contexto cancelable.
+// 5. LIFECYCLE MANAGEMENT:
+//   - Uses context for graceful shutdown on SIGINT/SIGTERM signals
+//   - Ensures cache synchronization before processing begins
+//   - Cleanly shuts down informers and work queues on termination
 func main() {
 	var kubeconfig string
 	flag.StringVar(&kubeconfig, "kubeconfig", "", "absolute path to the kubeconfig file")
@@ -76,19 +74,31 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	// workqueue to process CR keys (namespace/name)
+	// Cola en la que guardamos los items a procesar
 	queue := workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "multiplicadores")
 	defer queue.ShutDown()
 
-	// dynamic informer factory to watch the custom resource (unstructured)
+	// Factoria para observar recursos personalizados
+	//    a) dynFactory (DynamicSharedInformerFactory):
+	//       - Maps to: Custom Resource "Multiplicador"
+	//       - Purpose: Watches custom resources defined by the operator
+	//       - Events Published: AddFunc (CR created), UpdateFunc (CR modified), DeleteFunc (CR deleted)
+	//       - Use Case: Triggered when a Multiplicador CR is added, updated, or removed
+	//       - Informer Type: Dynamic (works with unstructured objects)
 	dynFactory := dynamicinformer.NewFilteredDynamicSharedInformerFactory(dyn, 0, metav1.NamespaceAll, nil)
 	crInformer := dynFactory.ForResource(gvr).Informer()
 
-	// typed informer factory to watch Deployments and map back to owner CRs
+	// Factoria para observar recursos estandar de kubernetes
+	//    b) typedFactory (SharedInformerFactory):
+	//       - Maps to: Kubernetes Deployments (standard resource)
+	//       - Purpose: Watches Deployments that are owned by Multiplicador CRs
+	//       - Events Published: AddFunc (Deployment created), UpdateFunc (Deployment modified), DeleteFunc (Deployment deleted)
+	//       - Use Case: Triggered when a Deployment associated with a Multiplicador CR changes
+	//       - Informer Type: Typed (uses Go structs like *appsv1.Deployment)
 	typedFactory := informers.NewSharedInformerFactory(clientset, 0)
 	deployInformer := typedFactory.Apps().V1().Deployments().Informer()
 
-	// enqueue helper: accept objects from informers and enqueue ns/name
+	// guarda items en la cola
 	enqueueObj := func(obj interface{}) {
 		var metaObj metav1.Object
 		// handle tombstones
@@ -116,7 +126,7 @@ func main() {
 		queue.Add(key)
 	}
 
-	// CR events: enqueue the CR directly
+	// Gestiona movimiento en los recursos a medida
 	crInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc:    enqueueObj,
 		UpdateFunc: func(old, new interface{}) { enqueueObj(new) },
@@ -169,7 +179,7 @@ func main() {
 		},
 	})
 
-	// Start informers
+	// Arrancamos las factorias para recibir los eventos
 	dynFactory.Start(ctx.Done())
 	typedFactory.Start(ctx.Done())
 
@@ -181,16 +191,20 @@ func main() {
 
 	// worker to process queue items
 	processNextItem := func() bool {
+		// obtiene un item de la cola
 		item, shutdown := queue.Get()
 		if shutdown {
 			return false
 		}
 		defer queue.Done(item)
+		// comprueba si el tipo undelying del interface es un string
 		key, ok := item.(string)
 		if !ok {
+			//sino es un string, olvidamos el item y seguimos con el siguiente
 			queue.Forget(item)
 			return true
 		}
+
 		parts := strings.SplitN(key, "/", 2)
 		ns := parts[0]
 		name := parts[1]
@@ -201,6 +215,7 @@ func main() {
 			queue.Forget(item)
 			return true
 		}
+		// reconcilia el item
 		if err := reconcileOne(ctx, dyn, clientset, u); err != nil {
 			log.Printf("reconcile %s failed: %v", key, err)
 			queue.AddRateLimited(item)
@@ -210,7 +225,7 @@ func main() {
 		return true
 	}
 
-	// start worker goroutines
+	// lanzamos dos gorutinas
 	workerCount := 2
 	for i := 0; i < workerCount; i++ {
 		go func() {
@@ -219,7 +234,7 @@ func main() {
 		}()
 	}
 
-	// wait for termination signal
+	// esperamos a que nos llegue la señal de apagado
 	<-ctx.Done()
 	log.Println("apagando el operador multiplicador")
 }
