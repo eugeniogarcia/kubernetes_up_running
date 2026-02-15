@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"reflect"
+	"strings"
 	"syscall"
 	"time"
 
@@ -25,7 +26,8 @@ import (
 
 var (
 	// referencia a nuestro recurso
-	gvr = schema.GroupVersionResource{Group: "gz.com", Version: "v1", Resource: "multiplicadores"}
+	gvr           = schema.GroupVersionResource{Group: "gz.com", Version: "v1", Resource: "multiplicadores"}
+	finalizerName = "multiplicador.gz.com/finalizer"
 )
 
 // configuracion del cliente rest go
@@ -136,6 +138,27 @@ func reconcileOne(ctx context.Context, dyn dynamic.Interface, clientset kubernet
 	ruta, _ := getStringField(u, "spec", "ruta")
 	host, _ := getStringField(u, "spec", "host")
 
+	// If the CR is being deleted, perform cleanup (remove owner reference and route from proxy)
+	if u.GetDeletionTimestamp() != nil {
+		if err := cleanupProxyForCR(ctx, dyn, u); err != nil {
+			log.Printf("warning: cleanup failed for %s/%s: %v", u.GetNamespace(), u.GetName(), err)
+		}
+		// remove finalizer so deletion can proceed
+		finalizers := u.GetFinalizers()
+		nf := []string{}
+		for _, f := range finalizers {
+			if f == finalizerName {
+				continue
+			}
+			nf = append(nf, f)
+		}
+		if len(nf) != len(finalizers) {
+			u.SetFinalizers(nf)
+			_, _ = dyn.Resource(gvr).Namespace(ns).Update(ctx, u, metav1.UpdateOptions{})
+		}
+		return nil
+	}
+
 	if multiplicador <= 0 {
 		// indicamos en una anotación el error
 		ann := u.GetAnnotations()
@@ -191,7 +214,7 @@ func reconcileOne(ctx context.Context, dyn dynamic.Interface, clientset kubernet
 			gvk = schema.GroupVersionKind{Group: gvr.Group, Version: gvr.Version, Kind: "Multiplicador"}
 		}
 		ownerRef := metav1.NewControllerRef(u, gvk)
-		// fija la referencia en el deployment. Esto relaciona a ojos de kubernetes el deployment con el recurso que estamos reconciliando, de modo que si el recurso se elimina, el deployment se eliminará automáticamente.
+		// fija la referencia en el deployment. Esto relaciona a ojos de kubernetes el deployment con el recurso que estamos reconciliando, de modo que si el recurso se elimina, el deployment se eliminará automáticamente. Podemos tener más de un owner, asun que lo que hacemos es un append para añadir el nuevo owner
 		d.ObjectMeta.OwnerReferences = append(d.ObjectMeta.OwnerReferences, *ownerRef)
 
 		// creamos el deployment en el cluster
@@ -390,8 +413,89 @@ func ensureServiceAndProxy(ctx context.Context, dyn dynamic.Interface, clientset
 		return nil
 	}
 	proxyGVR := schema.GroupVersionResource{Group: "projectcontour.io", Version: "v1", Resource: "httpproxies"}
-	// Use CR name as HTTPProxy name (user request)
+	// Vamos a asegurar que no se creen dos http proxies para el mismo host, haciendo que el nombre del proxy sea univoco a partir del host.
+	// El nombre del proxy por defecto será igual al nombre del recurso a reconciliar, pero vamos a usar el host para determina cual debe ser el nombre...
+	// Además, soportamos limpieza: si el CR cambió de host/ruta, eliminaremos la ownerReference y la ruta antigua del proxy previo.
+	ann := u.GetAnnotations()
+	if ann == nil {
+		ann = map[string]string{}
+	}
+	// Usamos una anotación para guardar en el propio recurso cual es el valor del host y de la ruta la ultima vez que el objeto a medida paso por las manos del operador. Si es la primera vez estarán en blanco
+	prevProxy := ann["multiplicador.gz.com/proxy"]
+	prevRoute := ann["multiplicador.gz.com/proxy-route"]
+
 	proxyName := u.GetName()
+	if host != "" {
+		// el nombre del proxy se establece de forma univoca a partir del host, de modo que si varios recursos tienen el mismo host, compartirán el mismo proxy. Esto es importante porque Contour no permite tener dos HTTPProxies con el mismo virtualhost (host), asín que si queremos soportar esa funcionalidad, debemos asegurarnos de reutilizar el mismo HTTPProxy para los recursos que comparten host.
+		proxyName = "vhost-" + strings.ReplaceAll(host, ".", "-")
+	}
+
+	// Si el proxy name previo es diferente del actual, significa que el host ha cambiado, así que tenemos que limpiar la referencia del proxy anterior (si existía) y eliminar la ruta antigua del proxy anterior (si existía). Esto es importante para evitar dejar rutas huérfanas en proxies antiguos que ya no corresponden al recurso que estamos reconciliando, y para evitar referencias incorrectas a proxies que ya no son relevantes para el recurso.
+	if prevProxy != "" && prevProxy != proxyName {
+		oldProxy, err := dyn.Resource(proxyGVR).Namespace(ns).Get(ctx, prevProxy, metav1.GetOptions{})
+		if err == nil {
+			// remove ownerRef matching this CR UID
+			if meta, ok := oldProxy.Object["metadata"].(map[string]interface{}); ok {
+				if ors, ok := meta["ownerReferences"].([]interface{}); ok {
+					newOrs := []interface{}{}
+					for _, or := range ors {
+						if om, ok := or.(map[string]interface{}); ok {
+							if om["uid"] == string(u.GetUID()) {
+								continue
+							}
+						}
+						newOrs = append(newOrs, or)
+					}
+					meta["ownerReferences"] = newOrs
+					oldProxy.Object["metadata"] = meta
+				}
+			}
+			// remove route matching prevRoute
+			if spec, ok := oldProxy.Object["spec"].(map[string]interface{}); ok {
+				if rts, ok := spec["routes"].([]interface{}); ok && prevRoute != "" {
+					newRts := []interface{}{}
+					for _, rr := range rts {
+						keep := true
+						if rm, ok := rr.(map[string]interface{}); ok {
+							if conds, ok := rm["conditions"].([]interface{}); ok && len(conds) > 0 {
+								if cm, ok := conds[0].(map[string]interface{}); ok {
+									if p, ok := cm["prefix"].(string); ok && p == prevRoute {
+										keep = false
+									}
+								}
+							}
+						}
+						if keep {
+							newRts = append(newRts, rr)
+						}
+					}
+					spec["routes"] = newRts
+					oldProxy.Object["spec"] = spec
+				}
+			}
+
+			// decide whether to delete or update the old proxy
+			deleteOld := false
+			if meta, ok := oldProxy.Object["metadata"].(map[string]interface{}); ok {
+				ors, _ := meta["ownerReferences"].([]interface{})
+				if len(ors) == 0 {
+					// if there are no owners left, and there are no routes, we can delete the proxy
+					if spec, ok := oldProxy.Object["spec"].(map[string]interface{}); ok {
+						if rts, ok := spec["routes"].([]interface{}); !ok || len(rts) == 0 {
+							deleteOld = true
+						}
+					} else {
+						deleteOld = true
+					}
+				}
+			}
+			if deleteOld {
+				_ = dyn.Resource(proxyGVR).Namespace(ns).Delete(ctx, prevProxy, metav1.DeleteOptions{})
+			} else {
+				_, _ = dyn.Resource(proxyGVR).Namespace(ns).Update(ctx, oldProxy, metav1.UpdateOptions{})
+			}
+		}
+	}
 
 	// Especifica del httpproxy
 	route := map[string]interface{}{
@@ -413,18 +517,17 @@ func ensureServiceAndProxy(ctx context.Context, dyn dynamic.Interface, clientset
 		"spec":       proxySpec,
 	}}
 
-	// Ensure OwnerReference on proxy so it is garbage-collected with the CR
+	// Vamos a especificar las referencias del proxy para que apunte al custom resource de modo que cuando se elimine el custom resource se elimine también el proxy. Sin embargo, como varios recursos pueden compartir el mismo proxy (si tienen el mismo host), no podemos usar una referencia de controlador (controller=true) porque solo puede haber un controlador por recurso. En su lugar, vamos a usar una referencia de propietario no controlador (controller=false) para establecer la relación entre el proxy y el recurso que estamos reconciliando. De esta manera, si el recurso se elimina, Kubernetes eliminará el proxy automáticamente, pero no habrá conflicto si varios recursos comparten el mismo proxy.
 	gvk := u.GroupVersionKind()
 	if gvk.Empty() {
 		gvk = schema.GroupVersionKind{Group: gvr.Group, Version: gvr.Version, Kind: "Multiplicador"}
 	}
-	ownerRef := metav1.NewControllerRef(u, gvk)
 	ownerMap := map[string]interface{}{
-		"apiVersion": ownerRef.APIVersion,
-		"kind":       ownerRef.Kind,
-		"name":       ownerRef.Name,
-		"uid":        string(ownerRef.UID),
-		"controller": true,
+		"apiVersion": gvk.GroupVersion().String(),
+		"kind":       gvk.Kind,
+		"name":       u.GetName(),
+		"uid":        string(u.GetUID()),
+		"controller": false, // no es un controlador, solo una referencia de propietario para eliminación en cascada
 	}
 
 	// Try to get existing proxy
@@ -437,18 +540,22 @@ func ensureServiceAndProxy(ctx context.Context, dyn dynamic.Interface, clientset
 		if _, err := dyn.Resource(proxyGVR).Namespace(ns).Create(ctx, proxy, metav1.CreateOptions{}); err != nil {
 			return fmt.Errorf("create httpproxy: %w", err)
 		}
+		// guardamos en anotaciones el host (el proxyName es univoco con el host) y la ruta
+		ann["multiplicador.gz.com/proxy"] = proxyName
+		ann["multiplicador.gz.com/proxy-route"] = "/" + ruta
+		u.SetAnnotations(ann)
+		_, _ = dyn.Resource(gvr).Namespace(ns).Update(ctx, u, metav1.UpdateOptions{})
 		return nil
 	}
 
-	// existing proxy: ensure ownerRef present and spec up-to-date
+	// existing proxy: ensure ownerRef present and merge route instead of replacing entire spec
 	updated := false
-	// ensure ownerRefs
 	meta, _ := existingProxy.Object["metadata"].(map[string]interface{})
 	ors, _ := meta["ownerReferences"].([]interface{})
 	found := false
 	for _, or := range ors {
 		if om, ok := or.(map[string]interface{}); ok {
-			if om["uid"] == string(ownerRef.UID) {
+			if om["uid"] == string(u.GetUID()) {
 				found = true
 				break
 			}
@@ -460,17 +567,96 @@ func ensureServiceAndProxy(ctx context.Context, dyn dynamic.Interface, clientset
 		updated = true
 	}
 
-	// Replace existing spec with desired proxySpec if different
-	if !reflect.DeepEqual(existingProxy.Object["spec"], proxySpec) {
-		existingProxy.Object["spec"] = proxySpec
-		updated = true
+	// merge routes: first, if the previous route referenced the same proxy but different prefix, remove the old prefix
+	spec, _ := existingProxy.Object["spec"].(map[string]interface{})
+	if prevProxy == proxyName && prevRoute != "" && prevRoute != ("/"+ruta) {
+		if spec != nil {
+			if rts, ok := spec["routes"].([]interface{}); ok {
+				newRts := []interface{}{}
+				for _, rr := range rts {
+					remove := false
+					if rm, ok := rr.(map[string]interface{}); ok {
+						if conds, ok := rm["conditions"].([]interface{}); ok && len(conds) > 0 {
+							if cm, ok := conds[0].(map[string]interface{}); ok {
+								if p, ok := cm["prefix"].(string); ok && p == prevRoute {
+									remove = true
+								}
+							}
+						}
+					}
+					if !remove {
+						newRts = append(newRts, rr)
+					}
+				}
+				spec["routes"] = newRts
+				existingProxy.Object["spec"] = spec
+				updated = true
+			}
+		}
 	}
+
+	// merge routes: append our route if a route with same prefix is not present
+	spec = existingProxy.Object["spec"].(map[string]interface{})
+	var routes []interface{}
+	if spec != nil {
+		if r, ok := spec["routes"].([]interface{}); ok {
+			routes = r
+		}
+	}
+	// check if our prefix already exists
+	prefix := "/" + ruta
+	exists := false
+	for i, r := range routes {
+		if rm, ok := r.(map[string]interface{}); ok {
+			if conds, ok := rm["conditions"].([]interface{}); ok && len(conds) > 0 {
+				if cm, ok := conds[0].(map[string]interface{}); ok {
+					if p, ok := cm["prefix"].(string); ok && p == prefix {
+						// replace this route with desired one
+						routes[i] = route
+						exists = true
+						break
+					}
+				}
+			}
+		}
+	}
+	if !exists {
+		routes = append(routes, route)
+	}
+	if spec == nil {
+		spec = map[string]interface{}{}
+	}
+	spec["routes"] = routes
+	if host != "" {
+		spec["virtualhost"] = map[string]interface{}{"fqdn": host}
+	}
+	existingProxy.Object["spec"] = spec
+	updated = true
 
 	if updated {
 		if _, err := dyn.Resource(proxyGVR).Namespace(ns).Update(ctx, existingProxy, metav1.UpdateOptions{}); err != nil {
 			return fmt.Errorf("update httpproxy: %w", err)
 		}
 	}
+
+	// persist annotations pointing to the proxy and route we ensured
+	ann["multiplicador.gz.com/proxy"] = proxyName
+	ann["multiplicador.gz.com/proxy-route"] = "/" + ruta
+	u.SetAnnotations(ann)
+	// ensure finalizer present so we can cleanup on delete
+	finals := u.GetFinalizers()
+	hasFinal := false
+	for _, f := range finals {
+		if f == finalizerName {
+			hasFinal = true
+			break
+		}
+	}
+	if !hasFinal {
+		finals = append(finals, finalizerName)
+		u.SetFinalizers(finals)
+	}
+	_, _ = dyn.Resource(gvr).Namespace(ns).Update(ctx, u, metav1.UpdateOptions{})
 
 	return nil
 }
@@ -502,4 +688,86 @@ func getStringField(u *unstructured.Unstructured, fields ...string) (string, boo
 		return "", false
 	}
 	return v, true
+}
+
+// cleanupProxyForCR removes ownerReference and route entries for this CR's recorded proxy.
+func cleanupProxyForCR(ctx context.Context, dyn dynamic.Interface, u *unstructured.Unstructured) error {
+	ns := u.GetNamespace()
+	if ns == "" {
+		ns = "default"
+	}
+	ann := u.GetAnnotations()
+	if ann == nil {
+		return nil
+	}
+	prevProxy := ann["multiplicador.gz.com/proxy"]
+	prevRoute := ann["multiplicador.gz.com/proxy-route"]
+	if prevProxy == "" {
+		return nil
+	}
+	proxyGVR := schema.GroupVersionResource{Group: "projectcontour.io", Version: "v1", Resource: "httpproxies"}
+	oldProxy, err := dyn.Resource(proxyGVR).Namespace(ns).Get(ctx, prevProxy, metav1.GetOptions{})
+	if err != nil {
+		return nil
+	}
+	// remove ownerRef matching this CR UID
+	if meta, ok := oldProxy.Object["metadata"].(map[string]interface{}); ok {
+		if ors, ok := meta["ownerReferences"].([]interface{}); ok {
+			newOrs := []interface{}{}
+			for _, or := range ors {
+				if om, ok := or.(map[string]interface{}); ok {
+					if om["uid"] == string(u.GetUID()) {
+						continue
+					}
+				}
+				newOrs = append(newOrs, or)
+			}
+			meta["ownerReferences"] = newOrs
+			oldProxy.Object["metadata"] = meta
+		}
+	}
+	// remove route matching prevRoute
+	if spec, ok := oldProxy.Object["spec"].(map[string]interface{}); ok {
+		if rts, ok := spec["routes"].([]interface{}); ok && prevRoute != "" {
+			newRts := []interface{}{}
+			for _, rr := range rts {
+				keep := true
+				if rm, ok := rr.(map[string]interface{}); ok {
+					if conds, ok := rm["conditions"].([]interface{}); ok && len(conds) > 0 {
+						if cm, ok := conds[0].(map[string]interface{}); ok {
+							if p, ok := cm["prefix"].(string); ok && p == prevRoute {
+								keep = false
+							}
+						}
+					}
+				}
+				if keep {
+					newRts = append(newRts, rr)
+				}
+			}
+			spec["routes"] = newRts
+			oldProxy.Object["spec"] = spec
+		}
+	}
+
+	// decide whether to delete or update the old proxy
+	deleteOld := false
+	if meta, ok := oldProxy.Object["metadata"].(map[string]interface{}); ok {
+		ors, _ := meta["ownerReferences"].([]interface{})
+		if len(ors) == 0 {
+			if spec, ok := oldProxy.Object["spec"].(map[string]interface{}); ok {
+				if rts, ok := spec["routes"].([]interface{}); !ok || len(rts) == 0 {
+					deleteOld = true
+				}
+			} else {
+				deleteOld = true
+			}
+		}
+	}
+	if deleteOld {
+		_ = dyn.Resource(proxyGVR).Namespace(ns).Delete(ctx, prevProxy, metav1.DeleteOptions{})
+	} else {
+		_, _ = dyn.Resource(proxyGVR).Namespace(ns).Update(ctx, oldProxy, metav1.UpdateOptions{})
+	}
+	return nil
 }

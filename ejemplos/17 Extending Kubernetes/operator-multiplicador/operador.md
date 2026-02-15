@@ -223,7 +223,43 @@ _, err := clientset.AppsV1().Deployments(ns).Create(ctx, d, metav1.CreateOptions
 
 ## Crear Servicio y HttpProxy
 
-El Servicio y el HttpProxy se crean con la misma tecnica con la que se creo el Deployment
+El Servicio y el HttpProxy se crean con la misma tecnica con la que se creo el Deployment. Comentar que con el HttpProxy la gestión es un poco más compleja porque dos recursos diferentes pueden utilizar el mismo host, y en ese caso, compartirán el httpproxy. Las técnicas que se usan para gestionar este caso son análogas, pero merece la pena destacar algunas cosas:
+
+- Para controlar si es necesario o no crear un httpproxy tenemos que verificar si ya hau algun proxy - creado para otro custom resource - que use el mismo host. La forma más sencilla es que el nombre del httpproxy sea univoco con el host, de esta forma bastará con verificar si tenemos ya un proxy con el nombre de nuestro host
+- Un httpproxy puede por lo tanto tener varios owners. Se actualiza un slice con la relación de owners. Estos owners no pueden ser controller
+
+```go
+d.ObjectMeta.OwnerReferences = append(d.ObjectMeta.OwnerReferences, *ownerRef)
+```
+
+observese como `controller` es false:
+
+```go
+ownerMap := map[string]interface{}{
+	"apiVersion": gvk.GroupVersion().String(),
+	"kind":       gvk.Kind,
+	"name":       u.GetName(),
+	"uid":        string(u.GetUID()),
+	"controller": false, // no es un controlador, solo una referencia de propietario para eliminación en cascada
+}
+```
+
+- Puede sucede que a un custom resource el cambiemos el host, y si este fuera el caso tenemos que cambiar el owner del httpproxy - usado hasta ese momento - y crear/modificar el nuevo httpproxy con el nuevo owner. Si el httpproxy antiguo quedara "vacio" se tendrá que eliminar el httpproxy. Para hacer esta gestion incluimos una anotación en el custom resource en el que informamos "el nombre del proxy" que le da servicio. Usamos la anotación para _guardar este estado_:
+
+recuperamos el valor previo:
+
+```go
+prevProxy := ann["multiplicador.gz.com/proxy"]
+prevRoute := ann["multiplicador.gz.com/proxy-route"]
+```
+
+y las actualizamos:
+
+```go
+// guardamos en anotaciones el host (el proxyName es univoco con el host) y la ruta 
+ann["multiplicador.gz.com/proxy"] = proxyName
+ann["multiplicador.gz.com/proxy-route"] = "/" + ruta
+```
 
 ## Experimento
 
