@@ -14,7 +14,7 @@ RUN go mod download
 COPY . .
 
 # instalamos delve para depurar el operador. Instala git y build-base en build (necesario para Delve)
-RUN CGO_ENABLED=0 go install github.com/go-delve/delve/cmd/dlv@latest
+RUN CGO_ENABLED=0 go install -ldflags "-s -w -extldflags '-static'" github.com/go-delve/delve/cmd/dlv@latest
  
 # compilamos -gcflags="all=-N -l":
 # -N: Deshabilita optimizaciones, permitiendo que Delve acceda a variables y funciones sin interferencias.
@@ -52,4 +52,4 @@ ENTRYPOINT ["/usr/local/bin/dlv", \
     "--listen=:40000", \
     "--api-version=2", \
     "--accept-multiclient", \
-    "--log"]
+    "--log=true"]

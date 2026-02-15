@@ -13,7 +13,7 @@
             "stopOnEntry": true,
             "substitutePath": [
             {
-            "from": "${workspaceFolder}/operator-multiplicador",
+            "from": "${workspaceFolder}",
             "to": "/src"                    
             }
             ]
