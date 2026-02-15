@@ -222,23 +222,6 @@ func main() {
 	// wait for termination signal
 	<-ctx.Done()
 	log.Println("apagando el operador multiplicador")
-	return
-}
-
-func reconcileAll(ctx context.Context, dyn dynamic.Interface, clientset kubernetes.Interface) error {
-	// Lista todos los recursos del namespace, correspondientes al CustomResource que controlamos. Los recursos se identifican de forma univoca con el grupo de api, versión y nombre. Se trata de un recurso custom así que usamos el cliente dinámico
-	list, err := dyn.Resource(gvr).Namespace(metav1.NamespaceAll).List(ctx, metav1.ListOptions{})
-	if err != nil {
-		return fmt.Errorf("lista multiplicadores: %w", err)
-	}
-	// recorremos cada uno de los recursos que hemos identificado...
-	for _, item := range list.Items {
-		// hace la reconciliación de ese recurso concreto
-		if err := reconcileOne(ctx, dyn, clientset, &item); err != nil {
-			log.Printf("reconciliar %s/%s falló: %v", item.GetNamespace(), item.GetName(), err)
-		}
-	}
-	return nil
 }
 
 // tenemos como argumento el contexto, la api dinámica para interactuar con el api-server con cursos custom, el cliente para interactuar con recursos estandar, y el recurso que estamos verificano/conciliando
