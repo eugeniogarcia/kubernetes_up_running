@@ -429,3 +429,8 @@ destacar que se hace un attach al puerto 40000 donde tenemos Delve escuchando. C
 ```
 
 con esto ya podemos fijar breakpoints
+
+## Operador v2. Uso de eventos
+
+Vamos a evolucionar el operador para que el ciclo de reconciliación en lugar de ser un loop infinito que haga pooling cada cinco segundos para interrogar al api-server cuales son los custom resources que tiene registrados y cual es su estado deseado frente al real - y hacer los ajuste correspondientes -, nos subscribiremos a eventos que el api-server publicará. La lógica de reconciliación es la misma que usabamos hasta ahora, solo que el trigger que la dispara será un evento - publicado por el apo server.
+
