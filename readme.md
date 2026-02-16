@@ -3039,14 +3039,103 @@ En [este documento](./ejemplos/17%20Extending%20Kubernetes/operator-multiplicado
 
 ## Securizar Aplicaciones
 
-Veremos varias capacidades relacionadas con seguridad
+### SecurityContext
 
-- **SecurityContext**. Spec que incluimos en un pod y/o contenedores para definir restricciones relativas a seguridad (user id, group id, scalation, etc)
+Spec que incluimos **en un pod y/o contenedores** para definir restricciones relativas a seguridad (user id, group id, scalation, etc). Podemos definir la _security context_ a nivel de pod y/o a nivel de contendor: 
 
-- **Pod Security**. Esta feature sutituye las antiguas SecurityPolicy. SecurityPolicy nos permite Validar y Mutar especificaciones de pods. Pod Security solo incluye validacion. La Security Policy se define con un objeto que se aplica a nivel de namespace. Kubernetes define tres niveles de privilegios (baseline, restricted, privileged), que pueden aplicarse (enforce, warn, audit). Cuando se solicita al cluster de kubernetes crear un Pod, antes de que la petición se envie el API Server, y después de la autenticación/autorización, se aplican las validaciones definidas en las Security Policies.
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: kuard
+spec:
+  securityContext:
+    runAsNonRoot: true # no permitir que el contenedor se ejecute como root
+    runAsUser: 1000 # usario con el que se ejecutara el contenedor. Tiene que existir en la imagen del contenedor y no ser root
+    runAsGroup: 3000 # group ID con el que se ejecutara el contenedor. Tiene que existir en la imagen del contenedor y ser un grupo del usuario con el que se ejecuta el contenedor
+    fsGroup: 2000 # los archivos que se creen en los volúmenes montados serán propiedad de este grupo
+  containers:
+    - image: docker.io/egsmartin/kuard:latest
+      name: kuard
+      securityContext:
+          allowPrivilegeEscalation: false # no permitir que el proceso del contenedor pueda elevar sus privilegios. Esto significa que incluso si un atacante logra comprometer el contenedor, no podrá obtener privilegios adicionales dentro del contenedor, lo que limita el impacto de una posible vulnerabilidad.
+          readOnlyRootFilesystem: true # el filesystem montado como root del contenedor sera de solo lectura, lo que significa que el proceso del contenedor no podrá escribir en el sistema de archivos raíz. Esto ayuda a prevenir cambios no autorizados en el sistema de archivos del contenedor, lo que puede ser útil para limitar el impacto de una posible vulnerabilidad.
+          privileged: false # el contenedor no se ejecutará en modo privilegiado, lo que significa que no tendrá acceso a todos los dispositivos del host ni podrá realizar ciertas operaciones que requieren privilegios elevados. Esto ayuda a limitar el impacto de una posible vulnerabilidad en el contenedor, ya que incluso si un atacante logra comprometer el contenedor, no podrá acceder a recursos críticos del host.
+      ports:
+        - containerPort: 8080
+          name: http
+          protocol: TCP
+```
+
+- `runAsNonRoot`. Puede fijarse a nivel de pod o de container. Indica si el pod o el contenedor se tiene que ejecutar como NO root. Si especificamos un usuario que sea root el Pod/container no arrancará (esto es, comprobamos si el usuario con el que se creo la imagen en el Dockerfile era o no root)
+
+- `runAsUser/runAsGroup`. Puede fijarse a nivel de pod o de container. Con esta propiedad se sobre-escribe el usuario y/o grupo que se haya podido especificar en la imagen (en el Dockerfile)
+
+- `fsGroup`. Propiedad a nivel de Pod. Con esta propiedad se configura el grupo al que perteneceran todos los archivos que se monten en el Pod dentro de un volumen
+
+- `privileged`. Propiedad a nivel de container. Cuando se habilita, `true`, hace que el contenedor se ejecute con los mismos privilegios que tiene el host.
+
+- `allowPrivilegeEscalation`. Propiedad a nivel de container. Determina si un proceso que se ejecuta en un contenedor, puede solicitar más permisos, para correr con los privilegios que tiene el host. Cuando la propiedad anterior, `privileged` se pone a `true`, esta también se informa a `true` por defecto.
+
+- `readOnlyRootFilesystem`. Puede fijarse a nivel de pod o de container. Monta el root filesystem en solo lectura. Estamos hablando del root file system, no de los volumnes que podamos o no montar adicionalmente en el contenedor/pod
+
+Si arrancamos el pod y abrimos su shell (ash):
+
+```ps
+kubectl apply -f .\kuard-pod-securitycontext.yaml
+
+kubectl exec -it kuard -- ash
+```
+
+podemos comprobar que el usuario, y grupo son los indicados en el security context:
+
+```sh
+id
+
+uid=1000(kuard) gid=3000 groups=2000,3000
+```
+
+```yaml
+[...]
+
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    runAsGroup: 3000
+    fsGroup: 2000 
+
+[...]
+```
+
+y el root file system es de solo lectura:
+
+```sh
+touch prueba.txt
+
+touch: prueba.txt: Read-only file system
+```
+
+### Controles a nivel del SSOO
+
+Con el security context también podemos configurar controles que se aplican a nivel de SSOO - y que por lo tanto son dependientes de cual es el SSOO del host. 
+
+- `Capabilities`. Nos permite quitar o añadir grupos de permisos. Antes habíamos visto que podíamos usar `privileged` para ejecutar o no en modo privelegiado. Con esta funcionalidad podemos ser más granulares en lo que significa ejectuar un contenedor con privilegios.
+
+
+
+## 
+Esta feature sutituye las antiguas SecurityPolicy. SecurityPolicy nos permite Validar y Mutar especificaciones de pods. Pod Security solo incluye validacion. La Security Policy se define con un objeto que se aplica a nivel de namespace. Kubernetes define tres niveles de privilegios (baseline, restricted, privileged), que pueden aplicarse (enforce, warn, audit). Cuando se solicita al cluster de kubernetes crear un Pod, antes de que la petición se envie el API Server, y después de la autenticación/autorización, se aplican las validaciones definidas en las Security Policies.
 
 - **ServiceAccount**. Podemos aplicar rbac para controlar que recursos pueden usarse con un pod en base a la service account asociada al pod
 
 - **NetworkPolicy**. Podemos definir políticas de ingres y/o egresa que asociamos a poda utilizando los selectores de etiquetas. Aquí egress e ingresa se refieren a comunicaciones desde y hacia un pod. Estas policies por si solas no hacen nada, se necesita un controlador que hay que instalar, tipo Cilium, qué interpret y aplique las politicas
 
 - **Rutime Class**. Se dispone de una o varias clases rutime que el administrador ha instalado. Se pueden usar etiquetas para vincular ciertas clases solo con ciertos nodos. En el pod podemos especificar el runtime. El efecto que tiene esto es que el pod se ejecute con un tipo de sandbox u otro (con más o menos restricciones)
+
+
+
+## Otros
+
+- Desplegar en Azure
+  - Prueba rdto en azure
+  - Operador en azure

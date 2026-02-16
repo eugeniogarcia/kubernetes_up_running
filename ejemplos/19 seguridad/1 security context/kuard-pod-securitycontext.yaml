@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: kuard
+spec:
+  securityContext:
+    runAsNonRoot: true # no permitir que el contenedor se ejecute como root
+    runAsUser: 1000 # usario con el que se ejecutara el contenedor. Tiene que existir en la imagen del contenedor y no ser root
+    runAsGroup: 3000 # group ID con el que se ejecutara el contenedor. Tiene que existir en la imagen del contenedor y ser un grupo del usuario con el que se ejecuta el contenedor
+    fsGroup: 2000 # los archivos que se creen en los volúmenes montados serán propiedad de este grupo
+  containers:
+    - image: docker.io/egsmartin/kuard:latest
+      name: kuard
+      securityContext:
+          allowPrivilegeEscalation: false # no permitir que el proceso del contenedor pueda elevar sus privilegios. Esto significa que incluso si un atacante logra comprometer el contenedor, no podrá obtener privilegios adicionales dentro del contenedor, lo que limita el impacto de una posible vulnerabilidad.
+          readOnlyRootFilesystem: true # el filesystem montado como root del contenedor sera de solo lectura, lo que significa que el proceso del contenedor no podrá escribir en el sistema de archivos raíz. Esto ayuda a prevenir cambios no autorizados en el sistema de archivos del contenedor, lo que puede ser útil para limitar el impacto de una posible vulnerabilidad.
+          privileged: false # el contenedor no se ejecutará en modo privilegiado, lo que significa que no tendrá acceso a todos los dispositivos del host ni podrá realizar ciertas operaciones que requieren privilegios elevados. Esto ayuda a limitar el impacto de una posible vulnerabilidad en el contenedor, ya que incluso si un atacante logra comprometer el contenedor, no podrá acceder a recursos críticos del host.
+      ports:
+        - containerPort: 8080
+          name: http
+          protocol: TCP
