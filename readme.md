@@ -3115,22 +3115,44 @@ touch prueba.txt
 touch: prueba.txt: Read-only file system
 ```
 
-### Controles a nivel del SSOO
+#### Controles a nivel del SSOO
 
 Con el security context también podemos configurar controles que se aplican a nivel de SSOO - y que por lo tanto son dependientes de cual es el SSOO del host. 
 
 - `Capabilities`. Nos permite quitar o añadir grupos de permisos. Antes habíamos visto que podíamos usar `privileged` para ejecutar o no en modo privelegiado. Con esta funcionalidad podemos ser más granulares en lo que significa ejectuar un contenedor con privilegios.
 
+- `AppArmor`. Permite controlar que ficheros pueden ser accedidos por los procesos del contenedor. Se configuran utilizando anotaciones del tipo `container.apparmor.security.beta.kulabernetes.io/<container_name>: <profile_ref>`
+
+Para que funcione AppArmor la distro debe soportarlo (AppArmor esta disponible en Ubuntu/Debian, por ejemplo, pero no en otras distrinuciones. En el pipeline de acceso Kind rechaza pods con anotaciones de AppArmor
+
+- `Seccomp`. Permite reducir la "superficie" que expone el linux configurando filtros con las sys calls que pueden hacerse
+
+- `SELinux`. Define el control de acceso a archivos y procesos en el SSOO 
+
+Podemos ver con una demo un pod configurado por defecto vs uno configurado aplicando estas restricciones. EL pod por defecto:
+
+```ps
+kubectl apply -f .\amicontained-pod.yaml
+```
 
 
-## 
+
+
+### Pod Security
+
 Esta feature sutituye las antiguas SecurityPolicy. SecurityPolicy nos permite Validar y Mutar especificaciones de pods. Pod Security solo incluye validacion. La Security Policy se define con un objeto que se aplica a nivel de namespace. Kubernetes define tres niveles de privilegios (baseline, restricted, privileged), que pueden aplicarse (enforce, warn, audit). Cuando se solicita al cluster de kubernetes crear un Pod, antes de que la petición se envie el API Server, y después de la autenticación/autorización, se aplican las validaciones definidas en las Security Policies.
 
-- **ServiceAccount**. Podemos aplicar rbac para controlar que recursos pueden usarse con un pod en base a la service account asociada al pod
+### ServiceAccount
 
-- **NetworkPolicy**. Podemos definir políticas de ingres y/o egresa que asociamos a poda utilizando los selectores de etiquetas. Aquí egress e ingresa se refieren a comunicaciones desde y hacia un pod. Estas policies por si solas no hacen nada, se necesita un controlador que hay que instalar, tipo Cilium, qué interpret y aplique las politicas
+Podemos aplicar rbac para controlar que recursos pueden usarse con un pod en base a la service account asociada al pod
 
-- **Rutime Class**. Se dispone de una o varias clases rutime que el administrador ha instalado. Se pueden usar etiquetas para vincular ciertas clases solo con ciertos nodos. En el pod podemos especificar el runtime. El efecto que tiene esto es que el pod se ejecute con un tipo de sandbox u otro (con más o menos restricciones)
+### NetworkPolicy
+
+Podemos definir políticas de ingres y/o egresa que asociamos a poda utilizando los selectores de etiquetas. Aquí egress e ingresa se refieren a comunicaciones desde y hacia un pod. Estas policies por si solas no hacen nada, se necesita un controlador que hay que instalar, tipo Cilium, qué interpret y aplique las politicas
+
+### Rutime Class
+
+Se dispone de una o varias clases rutime que el administrador ha instalado. Se pueden usar etiquetas para vincular ciertas clases solo con ciertos nodos. En el pod podemos especificar el runtime. El efecto que tiene esto es que el pod se ejecute con un tipo de sandbox u otro (con más o menos restricciones)
 
 
 
