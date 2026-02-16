@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: baseline-ns
+  labels:
+    pod-security.kubernetes.io/enforce: baseline # Se aplica la política de seguridad "baseline" a este namespace
+    pod-security.kubernetes.io/audit: restricted # a nivel de auditoría, se aplicará la política "restricted"
+    pod-security.kubernetes.io/warn: restricted # y a nivel de advertencia, también se aplicará la política "restricted"

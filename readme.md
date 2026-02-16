@@ -3129,18 +3129,34 @@ Para que funcione AppArmor la distro debe soportarlo (AppArmor esta disponible e
 
 - `SELinux`. Define el control de acceso a archivos y procesos en el SSOO 
 
-Podemos ver con una demo un pod configurado por defecto vs uno configurado aplicando estas restricciones. EL pod por defecto:
-
 ```ps
-kubectl apply -f .\amicontained-pod.yaml
+kubectl apply -f .\amicontained-pod-securitycontext.yaml
 ```
-
-
-
 
 ### Pod Security
 
-Esta feature sutituye las antiguas SecurityPolicy. SecurityPolicy nos permite Validar y Mutar especificaciones de pods. Pod Security solo incluye validacion. La Security Policy se define con un objeto que se aplica a nivel de namespace. Kubernetes define tres niveles de privilegios (baseline, restricted, privileged), que pueden aplicarse (enforce, warn, audit). Cuando se solicita al cluster de kubernetes crear un Pod, antes de que la petición se envie el API Server, y después de la autenticación/autorización, se aplican las validaciones definidas en las Security Policies.
+Pod Security allows introduce el concepto de _Pod Security Standards_ que se aplica **a nivel de namespace**. Pod Security Standards son una serie de atributos relacionados con la seguridad (entre los que se incluye `SecurityContext`). Los valores que adoptan estos atributos se agrupan en tres niveles de privilegios (**baseline**, **restricted**, **privileged**), que pueden aplicarse en tres grados diferentes (**enforce**, **warn**, **audit**).
+
+Cuando se solicita al cluster de kubernetes crear un Pod, antes de que la petición se envie el API Server, y después de la autenticación/autorización, se aplican las validaciones definidas en las Security Policies.
+
+Podemos ver como se configuraría este namespace:
+
+```yaml
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: baseline-ns
+  labels:
+    pod-security.kubernetes.io/enforce: baseline # Se aplica la política de seguridad "baseline" a este namespace
+    pod-security.kubernetes.io/audit: restricted # a nivel de auditoría, se aplicará la política "restricted"
+    pod-security.kubernetes.io/warn: restricted # y a nivel de advertencia, también se aplicará la política "restricted"
+```
+
+Antes de aplicar la politica en el cluster podemos hacer un "dry-run" para ver como se comportaría:
+
+```ps
+ kubectl label --dry-run=server --overwrite ns --all pod-security.kubernetes.io/enforce=baseline
+```
 
 ### ServiceAccount
 
