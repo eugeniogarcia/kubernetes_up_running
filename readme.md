@@ -3283,8 +3283,3 @@ index.html           100% |*****************************************************
 'index.html' saved
 ```
 
-## Otros
-
-- Desplegar en Azure
-  - Prueba rdto en azure
-  - Operador en azure
