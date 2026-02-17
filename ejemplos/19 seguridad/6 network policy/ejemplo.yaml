@@ -1,0 +1,60 @@
+apiVersion: v1
+kind: Namespace # creamos un namespace para aislar los recursos de este ejemplo
+metadata:
+  name: mi-espacio
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: kuard
+  namespace: mi-espacio # el pod se crea en el namespace "mi-espacio" para que el NetworkPolicy lo afecte
+  labels:
+    app: kuard
+spec:
+  containers:
+    - image: docker.io/egsmartin/kuard:latest
+      name: kuard
+      ports:
+        - containerPort: 8080
+          name: http
+          protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kuard
+  namespace: mi-espacio # el servicio también se crea en el namespace "mi-espacio" para exponer el pod kuard
+spec:
+  selector:
+    app: kuard
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 8080
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: test-ok
+  namespace: mi-espacio # el pod se crea en el mismo namespace "mi-espacio" para que el NetworkPolicy lo afecte
+  labels:
+    run: test-ok
+spec:
+  containers:
+    - image: busybox:latest
+      name: test-ok
+      command: ["sleep", "3600"] # el pod se mantendrá en ejecución para poder probar la conectividad
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: test-ko
+  namespace: mi-espacio # el pod se crea en el mismo namespace "mi-espacio" para que el NetworkPolicy lo afecte
+  labels:
+    run: test-ko
+spec:
+  containers:
+    - image: busybox:latest
+      name: test-ko
+      command: ["sleep", "3600"] # el pod se mantendrá en ejecución para poder probar la conectividad

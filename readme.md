@@ -3160,17 +3160,128 @@ Antes de aplicar la politica en el cluster podemos hacer un "dry-run" para ver c
 
 ### ServiceAccount
 
-Podemos aplicar rbac para controlar que recursos pueden usarse con un pod en base a la service account asociada al pod
-
-### NetworkPolicy
-
-Podemos definir políticas de ingres y/o egresa que asociamos a poda utilizando los selectores de etiquetas. Aquí egress e ingresa se refieren a comunicaciones desde y hacia un pod. Estas policies por si solas no hacen nada, se necesita un controlador que hay que instalar, tipo Cilium, qué interpret y aplique las politicas
+Podemos aplicar rbac para controlar que recursos pueden usarse con un pod en base a la service account asociada al pod. Ya hemos descrito como funciona esto cuando hemos tratado el _RBAC_.
 
 ### Rutime Class
 
-Se dispone de una o varias clases rutime que el administrador ha instalado. Se pueden usar etiquetas para vincular ciertas clases solo con ciertos nodos. En el pod podemos especificar el runtime. El efecto que tiene esto es que el pod se ejecute con un tipo de sandbox u otro (con más o menos restricciones)
+La forma en la que kubernetes interactua con el _container runtime_ en un nodo es por medio de la interface _Container Runtime Interface (CRI)_. Esto ha provocado que se estándarice en kubernetes la operacion con diferentes _container runtimes_ con propiedades diferentes de aislamiento del SSOO. Ejemplos de _container runtimes_ son `Kata Containers`, `Firecracker`, y `gVisor`, que proporcionan diferentes mecanismos de aislamiento y filtrado de syscalls.
 
+Esta variedad de posibilidades abre la puerta para que un administrador permita que un determinado Pod corra con uno u otro runtime. Este es el objetivo de la `RuntimeClass API`.
 
+En primer lugar el administrador tendrá que haber instalado en el nodo el rutime correspondiente. Con esto se tendrán que incluir en el pod `nodeSelectors` o `tolerations` concretas para que el Pod se programe en un nodo con el runtime deseado, y en la spec del pod se tendrá que informar el Rutime que queremos utilizar. El efecto que tiene esto es que el pod se ejecute con un tipo de sandbox u otro (con más o menos restricciones).
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: kuard
+  labels:
+    app: kuard
+spec:
+  runtimeClassName: firecracker #usar el runtime firecracker
+  containers:
+    - image: docker.io/egsmartin/kuard:latest
+      name: kuard
+      ports:
+        - containerPort: 8080
+          name: http
+          protocol: TCP
+```
+
+### NetworkPolicy
+
+Kubernetes incluye la `Network Policy API` que permite definir politicas para el ingress y el egress. Las políticas se configuran usando etiquetas que nos permiten seleccionar concretos pods y definir como estos pods van a poder comunicarse con otros pods y endpoints. 
+
+Una Network Policy como Ingress o Egress es parte de la definición estandard de kubernetes, pero **viene sin un controller asociado**, así que es preciso **incluir este controller utilizando un plugin** como `Calico`, `Cilium`, o `Weave Net` (en el cluster kind que estoy usando se incluye el CNI kindnet, que ya proporciona el operador para soportar la política).
+
+Los recursos Network Policy se definen a nivel de namespace y utilizando el `podSelector`, `policyTypes`, y las secciones `ingress` y `egress`. El único campo obligatorio es `pod​Se⁠lector`, pero se puede dejar en blanco (en este caso la política aplicaría para todos los nodos). El `podSelector` se puede informar con un `matchLabels` que funcionaría nos permitiría seleccionar pods específicos.
+
+Cuando un pod está afectado por una determinada política, su tráfico ingress y egress está restringido por la definición de esa política. Si en la política no se hubiera definido nada relativo al ingress y/o el egress, se bloquearía todo el tráfico.
+
+Por ejemplo en esta política podemo observar como efectivamente las politicas son un recurso a nivel de namespace. Esta política aplica a todos los pods, y como la definición de ingress viene vacia tiene el efecto de denegar cualquier tráfico ingress para los pods del namespace:
+
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: deniega-ingress
+  namespace: mi-espacio # el NetworkPolicy se aplicará a los pods del namespace "mi-espacio"
+spec:
+  podSelector: {} # afecta a todos los pods del namespace
+  policyTypes:
+  - Ingress # Solo se aplicará a tráfico de entrada (ingress). Como no hay definido nada, el efecto es denegar todo el tráfico de entrada a los pods del namespace.
+```
+
+#### Ejemplo
+
+Veamos con un ejemplo como funcionaría esto. Creamos todos los recursos (un namespace, un pod, un servicio, y una política que deniega el ingress en el pod). En primer lugar creamos los recursos de `kubectl apply -f .\networkpolicy-default-deny.yaml`. Se crean tres pods, kuard para exponer un servicio, y otros dos que usan `busybox` simplemente para hacer de clientes. [Busybox](https://hub.docker.com/_/busybox) es una navaja suiza muy ligera que proporciona una serie de herramientas típicas de linux con una imagen muy pequeña.
+
+Podemos por ejemplo abrir el shell:
+
+```ps
+docker run -it --rm busybox
+```
+
+en el pod vamos a utilizar esta imagen para comprobar que podemos - o no - llamar al servicio expuesto en el pod _kuad_. Arrancamos el pod con `sleep 3600`, de modo que pasada una hora se morira. Durante este tiempo nos conectaremos al pod usando su shell:
+
+```ps
+kubectl exec -it test-ko -n mi-espacio -- sh
+```
+
+podemos comprobar que podemos llamar al servicio:
+
+```sh
+/ # wget kuard
+
+Connecting to kuard (10.96.100.2:80)
+saving to 'index.html'
+index.html           100% |************************************************************************|  1874  0:00:00 ETA
+'index.html' saved
+```
+
+si ahora creamos la policy siguiente:
+
+```yaml
+kind: NetworkPolicy
+apiVersion: networking.k8s.io/v1
+metadata:
+  name: permite-ingress-kuards-desde-test-ok
+  namespace: mi-espacio # el servicio también se crea en el namespace "mi-espacio" para exponer el pod kuard
+spec:
+  podSelector:
+    matchLabels: #aplica al pod kuard, que tiene la etiqueta "app: kuard"
+      app: kuard 
+  ingress:
+    - from: # permite el trafico de entrada desde pods que tengan la etiqueta "run: test-ok"
+      - podSelector:
+          matchLabels:
+            run: test-ok
+```
+
+la policy aplica en el namespace `mi-espacio` a los pods que tienen la etiqueta `app=kuard`. La política define una regla ingress que permite el tráfico desde pods con la etiqueta `run=test-ok`. Si creamos esta política y repetimos la llamada:
+
+```sh
+/ # wget kuard --spider
+Connecting to kuard (10.96.100.2:80)
+```
+
+no se puede conectar, como esperabamos. Sin embargo si repetimos esta petición desde 
+
+```ps
+kubectl exec -it test-ok -n mi-espacio -- sh
+```
+
+la conexión desde este pod la network policy la permite:
+
+```sh
+/ # wget kuard
+
+# wget kuard
+Connecting to kuard (10.96.100.2:80)
+saving to 'index.html'
+index.html           100% |************************************************************************|  1874  0:00:00 ETA
+'index.html' saved
+```
 
 ## Otros
 

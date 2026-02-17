@@ -1,0 +1,14 @@
+kind: NetworkPolicy
+apiVersion: networking.k8s.io/v1
+metadata:
+  name: permite-ingress-kuards-desde-test-ok
+  namespace: mi-espacio # el servicio también se crea en el namespace "mi-espacio" para exponer el pod kuard
+spec:
+  podSelector:
+    matchLabels: #aplica al pod kuard, que tiene la etiqueta "app: kuard"
+      app: kuard 
+  ingress:
+    - from: # permite el trafico de entrada desde pods que tengan la etiqueta "run: test-ok"
+      - podSelector:
+          matchLabels:
+            run: test-ok
