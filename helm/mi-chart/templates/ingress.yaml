@@ -1,0 +1,31 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: simple-ingress
+spec:
+  ingressClassName: {{ .Values.ingress.className }}
+  rules:
+    - host: {{ .Values.ingress.host }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: mult
+                port:
+                  number: 80
+          - path: /multiplica
+            pathType: Prefix
+            backend:
+              service:
+                name: mult
+                port:
+                  number: 80
+          - path: /primos
+            pathType: Prefix
+            backend:
+              service:
+                name: primos
+                port:
+                  number: 80

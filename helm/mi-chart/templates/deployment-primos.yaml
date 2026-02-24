@@ -1,0 +1,22 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: primos
+  labels:
+    app: primos
+spec:
+  replicas: {{ .Values.primos.replicaCount }}
+  selector:
+    matchLabels:
+      app: primos
+  template:
+    metadata:
+      labels:
+        app: primos
+    spec:
+      containers:
+      - name: primos
+        image: {{ printf "%s:%s" .Values.primos.image.repository .Values.primos.image.tag }}
+        imagePullPolicy: {{ .Values.primos.image.pullPolicy }}
+        ports:
+        - containerPort: {{ .Values.primos.port }}

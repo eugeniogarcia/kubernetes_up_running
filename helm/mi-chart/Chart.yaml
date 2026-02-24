@@ -1,0 +1,7 @@
+apiVersion: v2
+name: mi-chart
+description: Chart que despliega los recursos equivalentes a los definidos en el script .\ejemplos.yaml
+type: application
+version: 0.1.0
+appVersion: "1.0"
+icon: https://helm.sh/images/helm.svg #icono de nuestro chart

@@ -1,0 +1,23 @@
+mult:
+  replicaCount: 2
+  multiplier: "3"
+  port: 8080
+  image:
+    repository: docker.io/egsmartin/multiplica
+    tag: latest
+    pullPolicy: Always
+
+primos:
+  replicaCount: 2
+  port: 8080
+  image:
+    repository: docker.io/egsmartin/primos
+    tag: latest
+    pullPolicy: IfNotPresent
+
+ingress:
+  className: contour
+  host: gz.com
+
+httpproxy:
+  fqdn: oper.gz.com

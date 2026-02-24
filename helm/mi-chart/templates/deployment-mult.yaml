@@ -1,0 +1,25 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mult
+  labels:
+    app: mult
+spec:
+  replicas: {{ .Values.mult.replicaCount }}
+  selector:
+    matchLabels:
+      app: mult
+  template:
+    metadata:
+      labels:
+        app: mult
+    spec:
+      containers:
+      - name: multiplica
+        image: {{ printf "%s:%s" .Values.mult.image.repository .Values.mult.image.tag }}
+        imagePullPolicy: {{ .Values.mult.image.pullPolicy }}
+        ports:
+        - containerPort: {{ .Values.mult.port }}
+        env:
+        - name: MULTIPLIER
+          value: "{{ .Values.mult.multiplier }}"

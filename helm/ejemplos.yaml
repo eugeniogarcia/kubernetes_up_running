@@ -1,0 +1,128 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mult3
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: mult3
+  template:
+    metadata:
+      labels:
+        app: mult3
+    spec:
+      containers:
+      - name: multiplica
+        image: docker.io/egsmartin/multiplica:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8080
+        env:
+        - name: MULTIPLIER
+          value: "3"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: primos
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: primos
+  template:
+    metadata:
+      labels:
+        app: primos
+    spec:
+      containers:
+      - name: primos
+        image: docker.io/egsmartin/primos:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8080
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mult3
+spec:
+  selector:
+    app: mult3
+  ports:
+  - port: 80
+    targetPort: 8080
+    protocol: TCP
+    name: http
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: primos
+spec:
+  selector:
+    app: primos
+  ports:
+  - port: 80 # puerto que se expone en el servicio
+    targetPort: 8080 # puerto donde escucha la aplicacion en el contenedor
+    protocol: TCP
+    name: http
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: simple-ingress
+spec:
+  ingressClassName: contour
+  rules:
+    - host: gz.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: mult3
+                port:
+                  number: 80
+          - path: /multiplica
+            pathType: Prefix
+            backend:
+              service:
+                name: mult3
+                port:
+                  number: 80 # puerto donde se expone el servicio
+          - path: /primos
+            pathType: Prefix
+            backend:
+              service:
+                name: primos
+                port:
+                  number: 80 # puerto donde se expone el servicio
+---
+apiVersion: projectcontour.io/v1
+kind: HTTPProxy
+metadata:
+  name: operaciones
+  namespace: default
+spec:
+  virtualhost:
+    fqdn: oper.gz.com
+  routes:
+    - conditions:
+      - prefix: /m3
+      services:
+        - name: mult3
+          port: 80
+      pathRewritePolicy:
+        replacePrefix:
+        - replacement: /multiplica
+    - conditions:
+      - prefix: /p
+      services:
+        - name: primos
+          port: 80
+      pathRewritePolicy:
+        replacePrefix:
+        - replacement: /primos

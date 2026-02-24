@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: mult
+spec:
+  selector:
+    app: mult
+  ports:
+  - port: 80
+    targetPort: {{ .Values.mult.port }}
+    protocol: TCP
+    name: http
