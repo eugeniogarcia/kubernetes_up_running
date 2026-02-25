@@ -1,42 +1,19 @@
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: database
----
-apiVersion: v1
-kind: Secret
-metadata:
-  name: mi-db-secret
-  namespace: database
-type: Opaque
-stringData:
-  postgresql-password: "prueba"
-  postgresql-username: "egsmartin"
-  postgresql-database: "mi-db"
-  # Claves adicionales que algunas plantillas esperan al montar el secret
-  password: "prueba"
-  username: "egsmartin"
-  database: "mi-db"
----
 apiVersion: postgresql.cnpg.io/v1
 kind: Cluster
 metadata:
   name: mi-postgres
   namespace: database
 spec:
-  instances: 2 # usamos dos instancias (1 primary + N-1 replicas)
-  postgresql:
-    version: "16" # usamos la version 16 de PostgreSQL
+  instances: 2
+  # Optionally specify a container image (e.g. "postgres:16")
+  # imageName: postgres:16
   storage:
     size: 2Gi
-    storageClassName: local-path # usamos el almacenamiento local con 2Gi
-  users:
-    - name: egsmartin
-      password: # La constraseña se obtiene del secret
-         valueFrom:
-           secretKeyRef:
-             name: mi-db-secret
-             key: postgresql-password 
-        secretName: mi-db-secret
-        secretKey: postgresql-password
-  database: mi-db
+    storageClass: local-path
+  bootstrap:
+    initdb:
+      database: mi-db
+      owner: egsmartin
+      secret:
+        name: mi-db-secret
+

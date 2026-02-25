@@ -11,9 +11,11 @@ helm install cloudnative-pg cnpg/cloudnative-pg --namespace cloudnative-pg --cre
 Write-Host "Ensure local-path storage class (if you already have it, this is a no-op)..."
 kubectl apply -f https://raw.githubusercontent.com/rancher/local-path-provisioner/master/deploy/local-path-storage.yaml
 
-# Crea los objetos kubernetes, namespace, secret y Cluster CR
-Write-Host "Crea objetos kubernetes, namespace, secret y Cluster CR..."
-kubectl apply -f .\postgress\cnpg-cluster.yaml
+# Crea la Namespace y Secret, luego el Cluster CR (el operador y el cluster están en namespaces distintos)
+Write-Host "Creando Namespace y Secret en 'database'..."
+kubectl apply -f .\database-namespace-secret.yaml
+Write-Host "Creando el Cluster CR en namespace 'database'..."
+kubectl apply -f .\cnpg-cluster.yaml
 
 # Esperamos a que el cluster de postgres este listo
 Write-Host "Esperando a que el cluster de postgres este listo (timeout 10m)..."
