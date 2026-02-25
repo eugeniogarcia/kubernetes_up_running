@@ -7,6 +7,25 @@ helm repo update
 Write-Host "Instala el operador de CloudNativePG en el namespace 'cloudnative-pg'..."
 helm install cloudnative-pg cnpg/cloudnative-pg --namespace cloudnative-pg --create-namespace
 
+# Espera hasta que el webhook del operador esté listo (tiene endpoints)
+Write-Host "Esperando a que el webhook del operador esté listo (timeout 10m)..."
+$timeout = 600
+$interval = 5
+$elapsed = 0
+while ($true) {
+	$ep = & kubectl -n cloudnative-pg get endpoints cnpg-webhook-service -o jsonpath='{.subsets}' 2>$null
+	if ($LASTEXITCODE -eq 0 -and $ep -and $ep -ne "") {
+		Write-Host "Webhook endpoints detectados."
+		break
+	}
+	if ($elapsed -ge $timeout) {
+		Write-Host "Timeout esperando webhook. Continúo pero la creación del Cluster puede fallar si el webhook no está listo."
+		break
+	}
+	Start-Sleep -Seconds $interval
+	$elapsed += $interval
+}
+
 # Instala la clase de almacenamiento dinamico local-path
 Write-Host "Ensure local-path storage class (if you already have it, this is a no-op)..."
 kubectl apply -f https://raw.githubusercontent.com/rancher/local-path-provisioner/master/deploy/local-path-storage.yaml
