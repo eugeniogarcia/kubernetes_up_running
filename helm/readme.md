@@ -111,3 +111,32 @@ por ultimo, podemos eliminar el chart:
 ```ps
 helm uninstall mi-chart -n default
 ```
+
+## Otros comandos helm
+
+Configuración, listar variables de entorno:
+
+```ps
+helm env
+```
+
+Listar repositorios:
+
+```ps
+helm repo list
+```
+
+borrar un repositorio:
+
+```ps
+helm repo remove [nombre del repositorio]
+```
+
+borra rutas habituales:
+
+```ps
+# Ejemplos comunes — reemplaza rutas con las que obtengas en 'helm env'
+Remove-Item -Force -Path "$env:APPDATA\helm\repositories.yaml"
+Remove-Item -Recurse -Force -Path "$env:LOCALAPPDATA\helm\repository"
+Remove-Item -Recurse -Force -Path "$env:LOCALAPPDATA\helm\cache\archive"
+```
