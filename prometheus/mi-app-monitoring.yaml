@@ -1,0 +1,34 @@
+apiVersion: v1
+kind: Service # serivcio para exponer las metricas del mi aplicacion
+metadata:
+  name: runners-app-metrics
+  namespace: default
+  labels:
+    app: runners-app
+spec:
+  selector:
+    app: runners-app
+  ports:
+    - name: metrics
+      port: 9000
+      targetPort: 9000
+
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor # CRO que configura Prometheus
+metadata:
+  name: runners-app-servicemonitor
+  namespace: monitoring   # debe estar donde está instalado el operador (kube-prom-stack)
+  labels:
+    release: kube-prom-stack
+spec: # seleccionamos los servvicios que vamos a screapear
+  selector:
+    matchLabels:
+      app: runners-app
+  namespaceSelector:
+    matchNames:
+      - default   
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: 15s
