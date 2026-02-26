@@ -41,3 +41,6 @@ Al crear el chart de Help hemos indicado una serie de [parametros](cnpg-cluster.
 - `postgresql.version: "16"`
 - `storage.size: 2Gi` y `storageClassName: local-path`
 - Usa el Secret `mi-db-secret` y la clave `postgresql-password` para la contraseña del usuario `egsmartin`.
+
+## Uso de Postgres
+

@@ -586,6 +586,26 @@ Kubernetes crea un Service de tipo LoadBalancer, el proveedor cloud detecta esta
 
 El tráfico que llega al balanceador se enruta a los nodos, y de ahí al Service, que lo redirige a los Pods correspondientes.
 
+**NOTA**. Cuando creamos un servicio tipo `LoadBalancer` en kind con Docker Desktop, se crea un contenedor en docker que hace de proxy con el servicio cluster. Si tenemos:
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: runners-app-service
+spec:
+  selector:
+    app: runners-app
+  type: LoadBalancer
+  ports:
+    - name: http
+      protocol: TCP
+      port: 8080
+      targetPort: 8080
+```
+
+el contenedor mapeará el puerto 8080 de localhost con el servicio.
+
 ### DNS
 
 Kubernetes proporciona un servicio de DNS en cada nodo del cluster. Cuando creamos un servicio automáticamente se crea un _A record_ en el DNS:
