@@ -44,3 +44,4 @@ Al crear el chart de Help hemos indicado una serie de [parametros](cnpg-cluster.
 
 ## Uso de Postgres
 
+Podemos ver un ejemplo de uso de postgres usando la [aplicación kuard](https://github.com/eugeniogarcia/go_en_accion/blob/main/ejemplo_api_db_backend/README.md#kubernetes).
