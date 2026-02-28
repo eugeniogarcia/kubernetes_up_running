@@ -101,4 +101,15 @@ grafana:
       ssl_mode: disable
 ```
 
-##
+en `prometheus.gz.com` podemos ver la consola de Prometheus donde podemos lanzar queries contra las metrícas. Por ejemplo, aquí lanzamos `rate(runners_app_http_requests{container='runners-app'}[2m])`, esto es, vamos a evaluar la métrica `runners_app_http_requests` filtrando los valores con la etiqueta `container='runners-app'`, y evaluando los datos en una ventana de `2m`. Usamos la función rate para obtener el total
+
+![queries prometheus](../imagenes/pql.png)
+
+![representacion gráfica](../imagenes/promgraph.png)
+
+podemos crear dashboards en `grafana.gz.com`:
+
+![dashboard](../imagenes/dashboard.png)
+
+También podemos crear alertas en `alertas.gz.comp`. 
+
