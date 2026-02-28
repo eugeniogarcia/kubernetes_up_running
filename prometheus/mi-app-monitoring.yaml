@@ -11,23 +11,48 @@ spec:
     - name: metrics
       port: 9000
       targetPort: 9000
-
 ---
-apiVersion: monitoring.coreos.com/v1
-kind: ServiceMonitor # CRO que configura Prometheus
+apiVersion: projectcontour.io/v1
+kind: HTTPProxy
 metadata:
-  name: runners-app-servicemonitor
-  namespace: monitoring   # debe estar donde está instalado el operador (kube-prom-stack)
-  labels:
-    release: kube-prom-stack
-spec: # seleccionamos los servvicios que vamos a screapear
-  selector:
-    matchLabels:
-      app: runners-app
-  namespaceSelector:
-    matchNames:
-      - default   
-  endpoints:
-    - port: metrics
-      path: /metrics
-      interval: 15s
+  name: prometheus
+  namespace: monitoring
+spec:
+  virtualhost:
+    fqdn: prometheus.gz.com
+  routes:
+    - conditions:
+        - prefix: /
+      services:
+        - name: kube-prom-stack-kube-prome-prometheus
+          port: 9090
+---
+apiVersion: projectcontour.io/v1
+kind: HTTPProxy
+metadata:
+  name: alertas
+  namespace: monitoring
+spec:
+  virtualhost:
+    fqdn: alertas.gz.com
+  routes:
+    - conditions:
+        - prefix: /
+      services:
+        - name: kube-prom-stack-kube-prome-alertmanager
+          port: 9093
+---
+apiVersion: projectcontour.io/v1
+kind: HTTPProxy
+metadata:
+  name: grafana
+  namespace: monitoring
+spec:
+  virtualhost:
+    fqdn: grafana.gz.com
+  routes:
+    - conditions:
+        - prefix: /
+      services:
+        - name: kube-prom-stack-grafana
+          port: 80              
