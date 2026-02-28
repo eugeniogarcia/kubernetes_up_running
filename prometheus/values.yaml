@@ -1,5 +1,9 @@
 prometheus:
   prometheusSpec:
+    retention: 7d          # guarda solo 7 días de datos. Esto es suficiente para la mayoría de los casos, pero puedes ajustarlo según tus necesidades. Ten en cuenta que cuanto más tiempo guardes los datos, más espacio en disco necesitarás.
+    retentionSize: "200MB" # no ocupa más de esto en disco. Si supera este tamaño se empiezan a borrar datos antiguos, aunque no hayan pasado los 7 días
+    replicas: 1 #numero de pods de prometheus, con 1 es suficiente para este ejemplo, pero en producción podrías querer más para alta disponibilidad
+    podAntiAffinity: "hard" #evita que los pods de prometheus se programen en el mismo nodo, para mejorar la disponibilidad
     serviceMonitorSelector:
       matchLabels:
         release: kube-prom-stack
@@ -15,8 +19,15 @@ prometheus:
 
 grafana:
   enabled: true
-  adminUser: admin
-  existingSecret: grafana-admin # usamos un secret con las credenciales de grafana
+  replicas: 2 # dos preplicas de grafnana para HA
+
+  #adminUser: admin
+  #adminPassword: "prueba"
+  admin: # tomamos las credenciales del usuario administrador de grafana desde un secret, para no tenerlas hardcodeadas en el values.yaml
+    existingSecret: grafana-admin
+    userKey: usuario-admin       
+    passwordKey: contrasena-admin
+    
   persistence:
     enabled: true
     storageClassName: "local-path" #usamos un PVC usando esta clase, la misma que he usado con Postgres, pero con un tamaño menor
