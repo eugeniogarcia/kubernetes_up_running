@@ -2,7 +2,6 @@ apiVersion: v1
 kind: Service # serivcio para exponer las metricas del mi aplicacion
 metadata:
   name: runners-app-metrics
-  namespace: default
   labels:
     app: runners-app
 spec:

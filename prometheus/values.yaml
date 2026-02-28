@@ -1,0 +1,24 @@
+prometheus:
+  prometheusSpec:
+    serviceMonitorSelector:
+      matchLabels:
+        release: kube-prom-stack
+    serviceMonitorNamespaceSelector: {}
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 250Mi
+          storageClassName: "local-path" #usamos un PVC usando esta clase, la misma que he usado con Postgres, pero con un tamaño menor
+
+grafana:
+  enabled: true
+  adminUser: admin
+  existingSecret: grafana-admin # usamos un secret con las credenciales de grafana
+  persistence:
+    enabled: true
+    storageClassName: "local-path" #usamos un PVC usando esta clase, la misma que he usado con Postgres, pero con un tamaño menor
+    accessModes: ["ReadWriteOnce"]
+    size: 250Mi
