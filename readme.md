@@ -1866,6 +1866,7 @@ para ver la salida del job tendremos que ver los logs de los pods que el job cre
 
 ```ps
 kubectl logs oneshot-5w6pj
+```
 
 cuando borramos un job se borran también sus pods:
 
