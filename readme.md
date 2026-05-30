@@ -1474,7 +1474,7 @@ spec:
         averageUtilization: 50 # no puede superar el 50% de uso de cpu
   behavior:
     scaleDown:
-      stabilizationWindowSeconds: 10  # Ventana de estabilización (5 minutos)
+      stabilizationWindowSeconds: 10  # Ventana de estabilización (10 segundos)
       policies:
       - type: Percent
         value: 50  # Reduce hasta un 50% de las réplicas actuales por minuto
