@@ -1115,7 +1115,7 @@ para utilizar autoscaling necesitamos tener instalado el `metrics-server` (ver a
 ```ps
 kubectl get pods --namespace=kube-system
 
-kubectrl top nodes
+kubectl top nodes
 ```
 
 ya podemos crear un autoescalar. Por ejemplo en para este replicaset vamos a fijar el umbral en 80% de cpu, contemplando entre 2 y 5 pods:
