@@ -1,0 +1,50 @@
+server:
+  replicaCount: 1 # número de réplicas para el servicio de Temporal, se recomienda al menos 2 para alta disponibilidad
+  frontend: # frontend es el servicio que recibe las solicitudes de los clientes y las enruta a los servicios correspondientes
+    replicaCount: 1 
+  history: # history es el servicio que se encarga de almacenar el historial de las ejecuciones de las tareas
+    replicaCount: 1
+  matching: # matching es el servicio que se encarga de asignar tareas a los workers disponibles
+    replicaCount: 1
+  worker: # worker es el servicio que ejecuta las tareas asignadas por el matching
+    replicaCount: 1
+  config:
+    persistence:
+      datastores:
+        default:
+          sql:
+            createDatabase: true
+            manageSchema: true
+            pluginName: postgres12
+            driverName: postgres12
+            databaseName: temporal
+            connectAddr: "mi-postgres-rw.database.svc.cluster.local:5432"
+            connectProtocol: tcp
+            user: egsmartin
+            existingSecret: mi-temporal-secret
+            secretKey: password
+        visibility:
+          sql:
+            createDatabase: true
+            manageSchema: true
+            pluginName: postgres12
+            driverName: postgres12
+            databaseName: temporal_visibility
+            connectAddr: "mi-postgres-rw.database.svc.cluster.local:5432"
+            connectProtocol: tcp
+            user: egsmartin
+            existingSecret: mi-temporal-secret
+            secretKey: password
+    # Esto define el namespace default
+    namespaces:
+      default:
+        retention: 86400  # 24 horas de retención
+web:
+  replicaCount: 1 # web de administración de Temporal
+
+# instalamos las admin tools para poder ejecutar comandos de temporal desde el cluster
+admintools:
+  enabled: true
+  image:
+    repository: temporalio/admin-tools
+    tag: latest
