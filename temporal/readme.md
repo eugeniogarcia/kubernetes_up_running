@@ -230,8 +230,4 @@ NOTA: Hemos incluido en los valores del chart que se cree ya el namespace por de
 
 ## Archival
 
-podemos usar las admin-tools
-
-```sh
-kubectl exec -it -n mitemporal temporal-admintools-57554876c6-qlhfz -- sh
-```
+Tenemos una descripción de [como usar minio](https://github.com/eugeniogarcia/kubernetes_up_running/blob/main/readme.md) para configurar el archival de temporal.io. Con minio emulamos la api de AWS s3 para proporcionar almancenamiento. Temporal.io soporta solo AWS o GCP para el almacenamiento para archival.
