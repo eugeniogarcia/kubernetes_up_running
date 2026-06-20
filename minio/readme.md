@@ -112,3 +112,9 @@ temporal operator namespace update -n default --retention 1d
 ```
 
 Los datos archivados se guardarán en los dos buckets de s3 que tenemos en minio
+
+**Podemos diagnosticar errores al aplicar los comandos de `temporal operator ...` observando los logs**:
+
+```ps
+kubectl logs deploy/temporal-frontend -n mitemporal
+```
