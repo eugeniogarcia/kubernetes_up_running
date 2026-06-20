@@ -1,0 +1,24 @@
+server:
+  config:
+    archival:
+      history:
+        state: "enabled"
+        enableRead: true
+        provider:
+          s3store:
+            endpoint: "http://minio.minio.svc.cluster.local:9000"
+            region: "us-east-1"
+            accessKey: "minio"
+            secretKey: "minio123"
+            s3ForcePathStyle: true
+
+      visibility:
+        state: "enabled"
+        enableRead: true
+        provider:
+          s3store:
+            endpoint: "http://minio.minio.svc.cluster.local:9000"
+            region: "us-east-1"
+            accessKey: "minio"
+            secretKey: "minio123"
+            s3ForcePathStyle: true
