@@ -227,3 +227,11 @@ kubectl exec -it -n mitemporal temporal-admintools-57554876c6-gp7jz -- temporal 
 ```
 
 NOTA: Hemos incluido en los valores del chart que se cree ya el namespace por defecto
+
+## Archival
+
+podemos usar las admin-tools
+
+```sh
+kubectl exec -it -n mitemporal temporal-admintools-57554876c6-qlhfz -- sh
+```

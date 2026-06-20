@@ -1,0 +1,44 @@
+replicas: 1
+
+image:
+  repository: minio/minio
+  tag: latest
+
+rootUser: "minio"
+rootPassword: "minio123"
+
+mode: standalone
+
+persistence:
+  enabled: true
+  size: 50Mi
+  storageClass: "local-path"   # tu clase de almacenamiento
+  accessMode: ReadWriteOnce
+
+service:
+  type: ClusterIP
+  port: 9000
+
+resources:
+  requests:
+    memory: 512Mi
+    cpu: 250m
+
+buckets:
+  - name: temporal-history
+    policy: none
+    purge: false
+  - name: temporal-visibility
+    policy: none
+    purge: false
+
+environment:
+  MINIO_BROWSER: "on"
+
+extraArgs:
+  - "--console-address"
+  - ":9001"
+
+consoleService:
+  type: ClusterIP
+  port: 9001
