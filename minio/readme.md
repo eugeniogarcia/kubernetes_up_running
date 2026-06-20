@@ -74,31 +74,41 @@ acceder a la consola con `minio` y `minio123`:
 kubectl port-forward -n minio svc/minio-console 9001:9001
 ```
 
-actualizamos el cluster de temporal con las propiedades de persistencia:
+actualizamos el cluster de temporal con las propiedades de persistencia. En primer lugar, como ya tenemos el cluster temporal.io creado, obtenemos la configuración actual:
 
 ```ps
 helm get values temporal -n mitemporal > current-values.yaml
+```
 
-helm upgrade temporal temporal/temporal --namespace mitemporal -f temporal.yaml
+Sobre esa configuración, actualizamos los valores indicados en `temporal.yaml`, y con el archivo resultante hacemos la actualización del chart:
 
+```ps
 helm upgrade temporal temporal/temporal --namespace mitemporal -f current-values.yaml
-
 ```
 
-```
-tctl --namespace mitemporal namespace update \
-  --history_archival_state enabled \
-  --history_archival_uri s3://temporal-history \
-  --visibility_archival_state enabled \
-  --visibility_archival_uri s3://temporal-visibility \
-  --retention 48h
+- con esto hemos definido las rutas para el archival, `history` (guarda la historia del workflow: cada evento, señal, actividad iniciada/terminada, timer, flujo hijo, etc.) y `visibility` (guarda los metadatos asociados al workflow: runid, start and end times, side-effects, ...)
+- y hemos habilitado por defecto el archival para los namespaces (la configuración de rutas es común para todos los namespaces)
+
+Con el CLI podemos habilitar y deshabilitar el archival namespace a namespace (aunque las rutas serán las mismas para todos los namespaces habilitados). En primer lugar nos conectamos al Pod donde están las admin-tools:
+
+```ps
+kubectl exec -it -n mitemporal temporal-admintools-57554876c6-qlhfz -- sh
 ```
 
+y ya podemos proceder a habilitar el archiving:
+
+```sh
+temporal operator namespace update --history-archival-state enabled -n default
+
+temporal operator namespace update --visibility-archival-state enabled -n default
+
+temporal operator namespace describe -n default
 ```
-tctl --namespace default namespace update \
-  --history_archival_state enabled \
-  --history_archival_uri s3://temporal-history \
-  --visibility_archival_state enabled \
-  --visibility_archival_uri s3://temporal-visibility \
-  --retention 48h
+
+podemos fijar el tiempo de retención:
+
+```sh
+temporal operator namespace update -n default --retention 1d
 ```
+
+Los datos archivados se guardarán en los dos buckets de s3 que tenemos en minio

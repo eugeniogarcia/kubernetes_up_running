@@ -5,6 +5,15 @@ admintools:
     repository: temporalio/admin-tools
     tag: latest
 server:
+  additionalEnv:
+    - name: AWS_ACCESS_KEY_ID
+      value: "minio"
+    - name: AWS_SECRET_ACCESS_KEY
+      value: "minio123"
+    - name: AWS_REGION
+      value: "us-east-1"
+    - name: AWS_EC2_METADATA_DISABLED
+      value: "true"
   config:
     namespaces:
       default:
@@ -35,27 +44,6 @@ server:
             pluginName: postgres12
             secretKey: password
             user: egsmartin
-    archival:
-      history:
-        state: "enabled"
-        enableRead: true
-        provider:
-          s3store:
-            endpoint: "http://minio.minio.svc.cluster.local:9000"
-            region: "us-east-1"
-            accessKey: "minio"
-            secretKey: "minio123"
-            s3ForcePathStyle: true
-      visibility:
-        state: "enabled"
-        enableRead: true
-        provider:
-          s3store:
-            endpoint: "http://minio.minio.svc.cluster.local:9000"
-            region: "us-east-1"
-            accessKey: "minio"
-            secretKey: "minio123"
-            s3ForcePathStyle: true  
   frontend:
     replicaCount: 1
   history:
@@ -65,5 +53,31 @@ server:
   replicaCount: 1
   worker:
     replicaCount: 1
+  archival:
+    history:
+      state: "enabled"
+      enableRead: true
+      provider:
+        s3store:
+          endpoint: "http://minio.minio.svc.cluster.local:9000"
+          region: "us-east-1"
+          s3ForcePathStyle: true
+
+    visibility:
+      state: "enabled"
+      enableRead: true
+      provider:
+        s3store:
+          endpoint: "http://minio.minio.svc.cluster.local:9000"
+          region: "us-east-1"
+          s3ForcePathStyle: true
+  namespaceDefaults:
+    archival:
+      history:
+        state: "enabled"
+        URI: "s3://temporal-history"
+      visibility:
+        state: "enabled"
+        URI: "s3://temporal-visibility"
 web:
   replicaCount: 1
