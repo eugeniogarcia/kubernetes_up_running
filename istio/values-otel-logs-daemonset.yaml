@@ -1,0 +1,40 @@
+mode: daemonset
+
+fullnameOverride: opentelemetry-collector-logs
+
+image:
+  repository: otel/opentelemetry-collector-contrib
+
+presets:
+  logsCollection:
+    enabled: true
+    includeCollectorLogs: false
+  kubernetesAttributes:
+    enabled: true
+
+config:
+  processors:
+    memory_limiter:
+      check_interval: 1s
+      limit_mib: 256
+      spike_limit_mib: 64
+    batch: {}
+    resource:
+      attributes:
+        - key: k8s.cluster.name
+          value: kind
+          action: upsert
+
+  exporters:
+    otlphttp/loki:
+      endpoint: http://loki-gateway.observability.svc.cluster.local/otlp
+    debug:
+      verbosity: basic
+
+  service:
+    pipelines:
+      logs:
+        receivers: [filelog]
+        processors: [memory_limiter, k8sattributes, resource, batch]
+        exporters: [otlphttp/loki, debug]
+
