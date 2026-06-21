@@ -1,0 +1,12 @@
+meshConfig:
+  enableTracing: true
+  defaultConfig:
+    proxyMetadata:
+      OTEL_RESOURCE_ATTRIBUTES: cluster=kind,service.namespace=istio-lab
+  extensionProviders:
+    - name: otel-tracing
+      opentelemetry:
+        service: opentelemetry-collector.observability.svc.cluster.local
+        port: 4317
+        resource_detectors:
+          environment: {}

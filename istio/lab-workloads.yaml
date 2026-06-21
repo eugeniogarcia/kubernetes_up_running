@@ -1,0 +1,234 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: istio-lab
+  labels:
+    istio-injection: enabled
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: hello
+  namespace: istio-lab
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: client
+  namespace: istio-lab
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hello-v1
+  namespace: istio-lab
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: hello
+      version: v1
+  template:
+    metadata:
+      labels:
+        app: hello
+        version: v1
+    spec:
+      serviceAccountName: hello
+      containers:
+        - name: hello
+          image: hashicorp/http-echo:1.0.0
+          args:
+            - -listen=:5678
+            - -text=hello from v1
+          ports:
+            - name: http
+              containerPort: 5678
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hello-v2
+  namespace: istio-lab
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: hello
+      version: v2
+  template:
+    metadata:
+      labels:
+        app: hello
+        version: v2
+    spec:
+      serviceAccountName: hello
+      containers:
+        - name: hello
+          image: hashicorp/http-echo:1.0.0
+          args:
+            - -listen=:5678
+            - -text=hello from v2
+          ports:
+            - name: http
+              containerPort: 5678
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hello
+  namespace: istio-lab
+spec:
+  selector:
+    app: hello
+  ports:
+    - name: http
+      port: 80
+      targetPort: 5678
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: client
+  namespace: istio-lab
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: client
+  template:
+    metadata:
+      labels:
+        app: client
+    spec:
+      serviceAccountName: client
+      containers:
+        - name: curl
+          image: curlimages/curl:8.8.0
+          command: ["/bin/sh", "-c"]
+          args:
+            - sleep 365d
+---
+apiVersion: networking.istio.io/v1
+kind: DestinationRule
+metadata:
+  name: hello
+  namespace: istio-lab
+spec:
+  host: hello.istio-lab.svc.cluster.local
+  trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL
+    connectionPool:
+      tcp:
+        maxConnections: 10
+      http:
+        http1MaxPendingRequests: 10
+    outlierDetection:
+      consecutive5xxErrors: 3
+      interval: 10s
+      baseEjectionTime: 30s
+  subsets:
+    - name: v1
+      labels:
+        version: v1
+    - name: v2
+      labels:
+        version: v2
+---
+apiVersion: networking.istio.io/v1
+kind: VirtualService
+metadata:
+  name: hello
+  namespace: istio-lab
+spec:
+  hosts:
+    - hello
+    - hello.istio-lab.svc.cluster.local
+  http:
+    - name: header-route-to-v2
+      match:
+        - headers:
+            x-demo-version:
+              exact: v2
+      route:
+        - destination:
+            host: hello.istio-lab.svc.cluster.local
+            subset: v2
+          weight: 100
+    - name: delay-demo
+      match:
+        - headers:
+            x-demo-delay:
+              exact: "true"
+      fault:
+        delay:
+          percentage:
+            value: 100
+          fixedDelay: 2s
+      route:
+        - destination:
+            host: hello.istio-lab.svc.cluster.local
+            subset: v1
+          weight: 100
+    - name: weighted-split
+      route:
+        - destination:
+            host: hello.istio-lab.svc.cluster.local
+            subset: v1
+          weight: 90
+        - destination:
+            host: hello.istio-lab.svc.cluster.local
+            subset: v2
+          weight: 10
+---
+apiVersion: security.istio.io/v1
+kind: PeerAuthentication
+metadata:
+  name: namespace-strict-mtls
+  namespace: istio-lab
+spec:
+  mtls:
+    mode: STRICT
+---
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: hello-only-from-client
+  namespace: istio-lab
+spec:
+  selector:
+    matchLabels:
+      app: hello
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals:
+              - cluster.local/ns/istio-lab/sa/client
+---
+apiVersion: networking.istio.io/v1
+kind: Sidecar
+metadata:
+  name: client-egress-scope
+  namespace: istio-lab
+spec:
+  workloadSelector:
+    labels:
+      app: client
+  egress:
+    - hosts:
+        - ./*
+        - istio-system/*
+        - observability/*
+---
+apiVersion: telemetry.istio.io/v1
+kind: Telemetry
+metadata:
+  name: default-tracing
+  namespace: istio-system
+spec:
+  tracing:
+    - providers:
+        - name: otel-tracing
+      randomSamplingPercentage: 100
