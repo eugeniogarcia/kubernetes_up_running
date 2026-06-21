@@ -1,0 +1,58 @@
+grafana:
+  enabled: true
+  adminPassword: admin
+  defaultDashboardsTimezone: browser
+  additionalDataSources:
+    - name: Loki
+      uid: loki
+      type: loki
+      access: proxy
+      url: http://loki-gateway.observability.svc.cluster.local
+      jsonData:
+        timeout: 60
+        maxLines: 1000
+    - name: Tempo
+      uid: tempo
+      type: tempo
+      access: proxy
+      url: http://tempo.observability.svc.cluster.local:3100
+      jsonData:
+        httpMethod: GET
+        serviceMap:
+          datasourceUid: prometheus
+        tracesToLogsV2:
+          datasourceUid: loki
+          spanStartTimeShift: -5m
+          spanEndTimeShift: 5m
+          filterByTraceID: true
+          filterBySpanID: false
+        tracesToMetrics:
+          datasourceUid: prometheus
+
+prometheus:
+  prometheusSpec:
+    enableRemoteWriteReceiver: true
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    ruleSelectorNilUsesHelmValues: false
+    scrapeInterval: 15s
+    retention: 6h
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 10Gi
+
+alertmanager:
+  enabled: true
+
+kubeEtcd:
+  enabled: false
+
+kubeControllerManager:
+  enabled: false
+
+kubeScheduler:
+  enabled: false

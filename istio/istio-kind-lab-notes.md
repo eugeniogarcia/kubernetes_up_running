@@ -27,7 +27,6 @@ kubectl rollout restart deployment/istiod -n istio-system
 ## Desplegar el laboratorio
 
 ```powershell
-kubectl apply -f .\lab-observabilidad.yaml
 kubectl apply -f .\lab-workloads.yaml
 kubectl apply -f .\lab-otros.yaml
 
@@ -246,24 +245,67 @@ helm repo add bitnami https://charts.bitnami.com/bitnami
 helm repo update
 ```
 
+Orden de instalacion:
+
+```powershell
+helm upgrade --install thanos-minio bitnami/minio `
+  -n observability --create-namespace `
+  -f .\values-minio-thanos-kind.yaml
+
+kubectl apply -f .\thanos-objstore-secret-kind.yaml
+
+helm upgrade --install kps prometheus-community/kube-prometheus-stack `
+  -n observability --create-namespace `
+  -f .\values-kube-prometheus-stack.yaml
+
+helm upgrade --install loki grafana/loki `
+  -n observability `
+  -f .\values-loki-kind.yaml
+
+helm upgrade --install tempo grafana/tempo `
+  -n observability `
+  -f .\values-tempo-kind.yaml
+
+helm upgrade --install otel-traces open-telemetry/opentelemetry-collector `
+  -n observability `
+  -f .\values-otel-traces-gateway.yaml
+
+helm upgrade --install otel-logs open-telemetry/opentelemetry-collector `
+  -n observability `
+  -f .\values-otel-logs-daemonset.yaml
+
+kubectl apply -f .\istio-telemetry-otel.yaml
+kubectl apply -f .\istio-prometheus-monitors.yaml
+```
+
+URLs internas esperadas:
+
+```text
+Prometheus: http://kps-kube-prometheus-stack-prometheus.observability.svc:9090
+Grafana:    http://kps-grafana.observability.svc:80
+Loki:       http://loki-gateway.observability.svc.cluster.local
+Tempo:      http://tempo.observability.svc.cluster.local:3100
+OTel gRPC:  opentelemetry-collector.observability.svc.cluster.local:4317
+```
+
+Acceso local:
+
+```powershell
+kubectl port-forward -n observability svc/kps-grafana 3000:80
+```
+
+Abre:
+
+```text
+http://localhost:3000
+```
+
 Trazas OpenTelemetry:
 
 ```powershell
+$CLIENT = kubectl get pod -n istio-lab -l app=client -o jsonpath="{.items[0].metadata.name}"
+
 1..5 | ForEach-Object { kubectl exec -n istio-lab $CLIENT -c curl -- curl -s http://hello | Out-Null }
+
 kubectl logs -n observability deploy/opentelemetry-collector --tail=120
-```
-
-Deberias ver spans exportados por Envoy/Istio en el exporter `debug` del collector.
-
-## Limpieza
-
-```powershell
-kubectl delete -f .\lab-observabilidad.yaml
-kubectl delete -f .\lab-workloads.yaml
-kubectl delete -f .\lab-otros.yaml
-
-helm uninstall istio-ingress -n istio-ingress
-helm uninstall istiod -n istio-system
-helm uninstall istio-base -n istio-system
-kubectl delete namespace istio-system istio-ingress
 ```
