@@ -241,17 +241,12 @@ Los helm charts que vamos a utilizar son:
 helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
 helm repo add grafana https://grafana.github.io/helm-charts
 helm repo add open-telemetry https://open-telemetry.github.io/opentelemetry-helm-charts
-helm repo add bitnami https://charts.bitnami.com/bitnami
 helm repo update
 ```
 
 Orden de instalacion:
 
 ```powershell
-helm upgrade --install thanos-minio bitnami/minio `
-  -n observability --create-namespace `
-  -f .\values-minio-thanos-kind.yaml
-
 kubectl apply -f .\thanos-objstore-secret-kind.yaml
 
 helm upgrade --install kps prometheus-community/kube-prometheus-stack `

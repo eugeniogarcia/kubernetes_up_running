@@ -24,7 +24,7 @@ singleBinary:
   replicas: 1
   persistence:
     enabled: true
-    size: 10Gi
+    size: 50Mi
 
 read:
   replicas: 0
